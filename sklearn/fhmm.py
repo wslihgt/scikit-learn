@@ -23,46 +23,42 @@ import os
 
 import numpy as np
 
-from numpy import prod as npprod
-from numpy import sum as npsum
-from numpy import int32 as npint
-from numpy import arange as nparange
-
+# in order to better invert covariance matrices, use of linear algebra:
+#     y' C^-1 x is computed by cholesky decomposition of C = L L', then
+#     solving the equations L y_ = y and L x_ = x.
+#     thereafter: y' C^-1 x = y_' x
 from scipy import linalg
-# non-negative least square solver:
+# non-negative least square solver, for "smart initialization":
 from scipy.optimize import nnls
 from scipy.signal import lfilter
 
 
 import warnings
-# scikits.learn v0.8
-##warnings.warn("This script builds on top of scikits.learn.hmm"+\
-##              " and was developed under version 0.8 of it.")
-##
-##from scikits.learn.hmm import _BaseHMM, GaussianHMM
-##from scikits.learn.mixture import (logsum,
-##                                   _distribute_covar_matrix_to_match_cvtype,
-##                                   _validate_covars)
-##from scikits.learn.base import BaseEstimator
-
-# from scikits.learn (sklearn) v0.9:
+# from scikits.learn (sklearn) from v0.9:
 import sklearn
-from sklearn.hmm import _BaseHMM, GaussianHMM
-from sklearn.mixture import (_distribute_covar_matrix_to_match_cvtype,
-                             _validate_covars)
-from sklearn.base import BaseEstimator
-if sklearn.__version__.split('.')[1] in ('9','10','8'):
-    from sklearn.utils.extmath import logsum
+from .hmm import _BaseHMM, GaussianHMM
+from .mixture import (distribute_covar_matrix_to_match_covariance_type,
+                      _validate_covars)
+
+if sklearn.__version__.split('.')[1] in ('9','10','8'): #sklearn
+    from .utils.extmath import logsum
 else:
-    from sklearn.utils.extmath import logsumexp as logsum
+    try:
+        from ._hmmc import _logsum as logsum
+    except ImportError:
+        raise ImportError("Problem loading logsum from sklearn._hmmc module")
+        
 
-# home brew forward backward, with inline:
-from scipy.weave import inline
-fwdbwd_filename = 'computeLogDensity_FB_Viterbi.c'
-fwdbwd_file = open(fwdbwd_filename,'r')
-fwdbwd_supportcode = fwdbwd_file.read()
-fwdbwd_file.close()
+# replace inline by cython, when possible. Here: use current 0.11-dev
+# implementation of hmm, in cython.
+### home brew forward backward, with inline:
+##from scipy.weave import inline
+##fwdbwd_filename = 'computeLogDensity_FB_Viterbi.c'
+##fwdbwd_file = open(fwdbwd_filename,'r')
+##fwdbwd_supportcode = fwdbwd_file.read()
+##fwdbwd_file.close()
 
+# for displaying "debugging" information
 import matplotlib.pyplot as plt
 plt.ion()
 plt.rcParams['image.aspect'] = 'auto'
@@ -116,25 +112,35 @@ def normalize(A, axis=None):
             Asum  = 1
     return A / Asum
 
-class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM? 
+# methods for estimation/evaluation/decoding of FHMM:
+methods = ('full', 'variational')
+
+class _BaseFactHMM(_BaseHMM): 
     """ Base class for Factorial HMM
     """
-    def __init__(self, n_states=[2,2], 
+    def __init__(self,
+                 n_components=None,
+                 n_states=[2,2], 
                  startprob=None, transmat=None,
                  startprob_prior=None,
                  transmat_prior=None,
+                 algorithm="viterbi",
                  HMM=None):
         """
         """
-        
+        if not(n_components is None):
+            warnings.warn("For factorial HMMs, the number of components \n"+\
+                          "is given by the list of individual componenets\n"+\
+                          "in the n_states list.")
+        self.n_components = np.prod(n_states)
         self._n_states = list(n_states)
         self._n_chains = len(self._n_states)
         # number of states, but not all possible states,
         # only sum of number of states for each chain:
-        self._n_states_all = npsum(n_states)
+        self._n_states_all = np.sum(n_states)
         
-        ## should also probably check the length of all the arguments
-        ## before assigning to self.HMM...
+        ## the arguments are distributed to the individual HMMs
+        ## of the factorial HMM
         if startprob is None or \
                len(startprob)!=self._n_chains:
             startprob = [None] * self._n_chains
@@ -163,11 +169,18 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         self.transmat = None
         self.startprob_prior = None
         self.transmat_prior = None
+
+    def eval(self, obs, method='variational', **kwargs):
+        if not(method in methods):
+            raise ValueError("Desired method should be in "+methods)
+        
+        eval_meth = {'full': super(_BaseFactHMM, self).eval,
+                     'variational': self.eval_var}
+        return eval_meth[method](obs, **kwargs)
         
     def eval_var(self, obs, n_innerLoop=10,
-                 maxrank=None, beamlogprob=-np.Inf,
                  tol=0.0001):
-        """ TODO: to be tested and corrected according to fit_var"""
+        """ TODO: to be tested and corrected according to decode_var"""
         obs = np.asanyarray(obs)
         nframes = obs.shape[0]
         
@@ -188,9 +201,9 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
             frameVarParams = self._compute_var_params(obs, posterior)
             # Forward Backward for each chain:
             for n in range(self.n_chains):
-                ## idxStates = npsum(self.n_states[:n])+\
-                ##             nparange(self.n_states[n])
-                ## idxStates = npint(idxStates)
+                ## idxStates = np.sum(self.n_states[:n])+\
+                ##             np.arange(self.n_states[n])
+                ## idxStates = np.int32(idxStates)
                 dumpLogProba, fwdLattice = self.HMM[n]._do_forward_pass(\
                                                     frameVarParams[n],
                                                     maxrank,
@@ -205,18 +218,26 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                 logPost[n] = gamma - logsum(gamma, axis=1)
                 posteriors[n] = np.exp(logPost[n]).T
             
-            delmf = npsum(npsum(np.concatenate(posteriors) * \
+            delmf = np.sum(np.sum(np.concatenate(posteriors) * \
                                 np.concatenate(logPost))) \
-                  - npsum(npsum(np.concatenate(posteriors) * \
+                  - np.sum(np.sum(np.concatenate(posteriors) * \
                                 np.concatenate(logPost0)))
             if delmf < nframes*tol:
                 itermf = i
                 break
         
         return posteriors # should return also logL: approximate of it?
+
+    def decode(self, obs, method='variational', **kwargs):
+        if not(method in methods):
+            raise ValueError("Desired method should be in "+methods)
+        
+        decode_meth = {'full': super(_BaseFactHMM, self).decode,
+                       'variational': self.decode_var}
+        return decode_meth[method](obs, **kwargs)
     
-    def decode_var(self, obs, n_innerLoop=10, maxrank=None,
-                   beamlogprob=-np.Inf, verbose=False, debug=False,
+    def decode_var(self, obs, n_innerLoop=10,
+                   verbose=False, debug=False,
                    n_repeatPerChain=None, postInitMeth='random'):
         """decode_var
         
@@ -249,31 +270,11 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         ## First compute the variational parameters
         if verbose:
             print "Computing the variational parameters"
-        fwdlattice = {}
-        bwdlattice = {}
         
         posteriors, logPost = self._init_posterior_var(obs=obs,
                                                        method=postInitMeth,
                                                        debug=debug,
                                                        verbose=verbose)
-        
-        logH = self._compute_energyComp(obs=obs,
-                                        posteriors=posteriors,
-                                        debug=debug)
-        
-        if debug:
-            plt.figure(200)
-            plt.clf()
-            plt.imshow(np.concatenate(logPost.values(), axis=1).T)
-            plt.colorbar()
-            plt.title('initial log posteriors')
-            plt.draw()
-        
-        posteriors, logPost = self._init_posterior_var(obs=obs-np.vstack(logH),
-                                                       method=postInitMeth,
-                                                       debug=debug,
-                                                       verbose=verbose)
-        
         if debug:
             plt.figure(200)
             plt.clf()
@@ -300,12 +301,16 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                                                 chain=n, debug=debug)
                     # computing the forward/backward passes on the variational
                     # parameters, for the given chain
-                    fwdlattice[n], bwdlattice[n] = \
-                                    self._do_fwdbwd_pass_var_hmm_c(\
-                                                           frameLogVarParams,
-                                                           chain=n)
+                    logprob, fwdlattice = self._do_forward_pass_var_chain(\
+                                              frameVarParams=frameLogVarParams,
+                                              chain=n,
+                                              debug=debug)
+                    bwdlattice = self._do_backward_pass_var_chain(\
+                                              frameVarParams=frameLogVarParams,
+                                              chain=n,
+                                              debug=debug)
                     # ... and deducing the posterior probas
-                    gamma = fwdlattice[n] + bwdlattice[n]
+                    gamma = fwdlattice + bwdlattice
                     logPost[n] = (gamma.T - logsum(gamma, axis=1)).T
                     posteriors[n] = np.exp(logPost[n])
                     
@@ -324,7 +329,7 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                         plt.colorbar()
                         plt.title("posterior "+str(n))
                         plt.subplot(212)
-                        plt.imshow(bwdlattice[n].T)
+                        plt.imshow(bwdlattice.T)
                         plt.colorbar()
                         plt.title("bwdlattice "+str(n))
                         plt.draw()
@@ -336,16 +341,20 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                         ## raw_input("press \'any\' key... Doh!")
                     
                     
-            # stop condition (from [Gha97] and Matlab code)
-            delmf = npsum(npsum(np.concatenate(posteriors.values(),axis=1)*\
+            # stopping condition (from [Gha97] and Matlab code)
+            # measuring relative difference between previous and current posterior
+            # probabilities.
+            delmf = np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
                                 np.concatenate(logPost.values(),axis=1)))- \
-                    npsum(npsum(np.concatenate(posteriors.values(),axis=1)*\
+                    np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
                                 np.concatenate(logPost0.values(),axis=1)))
-            ## print delmf#DEBUG
+            
+            # TODO: check this stopping condition
             if delmf < nframes*0.000001 and inn>0:
                 itermf = inn
                 break
-        
+            
+        # then use "stabilized" variational params to compute the state sequences:
         state_sequences = {}
         ## frameVarParams = self._compute_var_params(obs, posteriors)
         # print frameVarParams #DEBUG
@@ -355,17 +364,16 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                                                 posteriors=posteriors,
                                                 chain=n, debug=debug)
             logprob, state_sequences[n] = self.HMM[n]._do_viterbi_pass(\
-                                                        frameLogVarParams,
-                                                        maxrank,
-                                                        beamlogprob)
+                                              frameLogVarParams)
             del logprob
-        
-        return state_sequences, posteriors
+            
+        # TODO return a meaningful logprob value:
+        logprob = None
+        return logprob, state_sequences, posteriors
     
     def fit_var(self, obs, n_iter=100, n_innerLoop=10,
                 thresh=1e-2, params=string.letters,
                 init_params=string.letters,
-                maxrank=None, beamlogprob=-np.Inf,
                 tol=0.0001, innerTol=1e-6,
                 verbose=False, debug=False,
                 **kwargs):
@@ -416,9 +424,9 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                     ## fwdlattice, bwdlattice = self._do_fwdbwd_pass_var_c(\
                     ##                                           frameVarParams)
                     for n in range(self._n_chains):
-                        ## idxStates = npsum(self.n_states[:n])+\
-                        ##             nparange(self.n_states[n])
-                        ## idxStates = npint(idxStates)
+                        ## idxStates = np.sum(self.n_states[:n])+\
+                        ##             np.arange(self.n_states[n])
+                        ## idxStates = np.int32(idxStates)
                         ## dumpLogProba, fwdlattice[n] = \
                         ##     self.HMM[n]._do_forward_pass(\
                         ##                              frameVarParams[n],
@@ -435,10 +443,15 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                                                 obs=seq,
                                                 posteriors=posteriors,
                                                 chain=n)
-                        fwdlattice[n], bwdlattice[n] = \
-                                                self._do_fwdbwd_pass_var_hmm_c(\
-                                                                 frameLogVarParams,
-                                                                 chain=n)
+                        ##fwdlattice[n], bwdlattice[n] = \
+                        ##                        self._do_fwdbwd_pass_var_hmm_c(\
+                        ##                                         frameLogVarParams,
+                        ##                                         chain=n)
+                        dumpLogProba, fwdlattice[n] = \
+                            self._do_forward_pass_var_chain(frameLogVarParams, chain=n)
+                        bwdlattice[n] = \
+                            self._do_backward_pass_var_chain(frameLogVarParams, chain=n)
+                        
                         if debug:
                             plt.figure(1)
                             plt.clf()
@@ -469,9 +482,9 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                     
                     # Calculate condition to stop inner loop
                     #     from pmhmm.m of [Gha97]
-                    delmf = npsum(npsum(np.concatenate(posteriors.values(),axis=1)*\
+                    delmf = np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
                                         np.concatenate(logPost.values(),axis=1)))- \
-                            npsum(npsum(np.concatenate(posteriors.values(),axis=1)*\
+                            np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
                                         np.concatenate(logPost0.values(),axis=1)))
                     ## print delmf#DEBUG
                     if delmf < nframes*0.000001 and inn>0:
@@ -491,7 +504,7 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
 
             # correcting accumulated stats
             for n in range(self._n_chains):
-                n0 = npsum(self.n_states[:n])
+                n0 = np.sum(self.n_states[:n])
                 n1 = n0 + self.n_states[n]
                 #stats['cor'][np.ix_(idxStates,idxStates)]
                 stats['cor'][n0:n1,n0:n1] = np.diag(stats[n]['post'])
@@ -538,23 +551,67 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
     def n_states_all(self):
         """Number of states in the model."""
         return self._n_states_all
+
+    # FHMM equivalent to HMM with prod(n_states), e.g. for each chain n,
+    # if n_states[n]=K, then the total n_components is K**(n_chains)
+    # 
+    # It is preferred not to store all the corresponding transition and
+    # start probabilities, computing them only if required by the user.
+    #
+    # TODO: check that these are not called internally by some function
+    # in "general" hmm module; override such methods.
+    #
+    # NB: these computations do not prevent over/underflows, since the goal
+    # of an FHMM implementation is not to use it as a regular HMM.
+    # It may anyway break due to memory issues (growing exponentially in number
+    # of chains)
     
-    def _get__means_(self):
-        pass
-    def _set__means_(self, means):
-        pass
+    # startprob are properties, because you cant trivially factorize them
+    # directly from the full HMM startproba:
+    @property
+    def startprob_(self):
+        startprob_ = self.HMM[0].startprob_
+        for n in range(1,self._n_chains):
+            startprob_ = np.kron(startprob_, self.HMM[n].startprob_)
+        return startprob_
+        
+    @property
+    def _log_startprob(self):
+        return np.log(startprob_)
     
-    def _get__covars_(self):
-        """Because the _covars_, normally the internal value, has to
-        be created from the _covars_ of each individual HMMs
+    # _log_transmat and transmat_ as property:
+    @property
+    def transmat_(self):
+        """The actual transmat_ for the full HMM is given as
+        a prod(n_states) x prod(n_states) matrix.
+        
+        
         """
-        pass
+        # transmat_ = np.zeros(self.n_components, self.n_components) # final shape
+        # using Kronecker products to set the whole transition matrix:
+        transmat_ = self.HMM[0].transmat_
+        for n in range(1, self._n_chains):
+            transmat_ = np.kron(transmat_, self.HMM[n].transmat_)
+            
+        # NB: accessing the desired transition probability
+        # is therefore related to the kronecker product properties:
+        # here, the states are such that, for state i_n and j_n of chain n, the 
+        # corresponding transition probability is given in transmat_[i,j]
+        # where i = \sum_n (\sum_{m=0}^{n-1}n_states[m] i_n), and likewise for j.
+        return transmat_
     
-    def _set__covars_(self, covars):
-        pass
+    @property
+    def _log_transmat(self):
+        """The actual _log_transmat for the full HMM is given as
+        a prod(n_states) x prod(n_states) matrix.
+        
+        
+        """
+        return np.log(transmat_)
+    # should not set transmat or log_transmat manually:
+    #def _set__log_transmat(self, log_transmat):
+    #    pass   
     
-    _means_ = property(_get__means_, _set__means_)
-    _covars_ = property(_get__covars_, _set__covars_)
     
     def _initialize_sufficient_statistics_var(self):
         stats = {}
@@ -583,7 +640,7 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
                 bwdlattice[n], params)
         
         # specific to FHMM: first order correlation expectation
-        #    [Gha97] : the sum_t < S_t S_t'>
+        #    [Gha97] : sum_t < S_t S_t'>
         postTot = np.concatenate(posteriors.values(), axis=1)
         stats['cor'] += np.dot(postTot.T, postTot)
         del postTot
@@ -594,7 +651,9 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         """distribute the results and compute sufficient statistics
         for each chain
         
-        
+        computes the estimates of the variational parameters
+        internally (avoiding to store it as it may exceed memory
+        capacity).
         """
         for n in range(self.n_chains):
             frameLogVarParams = self._compute_var_params_chain(seq,
@@ -608,6 +667,8 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         # specific to FHMM: first order correlation expectation
         #    [Gha97] : the sum_t < S_t S_t'>
         postTot = np.concatenate(posteriors.values(), axis=1)
+        # TODO: to be checked, the diagonals blocks are probably wrong here:
+        # (they are equal to diag(<S_t^n>), for block/chain n)
         stats['cor'] += np.dot(postTot.T, postTot)
         del postTot
 
@@ -664,7 +725,10 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         pass
     
     def _do_forward_pass_var(self, frameVarParams, **kwargs):
-        
+        """run forward pass, assuming the variational approximation
+        that each HMM is isolated, and for each chain n, the corresponding
+        'observation likelihood' is given by frameVarParams[n]
+        """
         logprob = {}
         fwdlattice = {}
         for n in range(self.n_chains):
@@ -675,15 +739,39 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         return logprob, fwdlattice
     
     def _do_backward_pass_var(self, frameVarParams, **kwargs):
-        
+        """run backward pass, assuming the variational approximation
+        that each HMM is isolated, and for each chain n, the corresponding
+        'observation likelihood' is given by frameVarParams[n]
+        """
         bwdlattice = {}
         for n in range(self.n_chains):
             bwdlattice[n] = self.HMM[n]._do_backward_pass(frameVarParams[n],
                                                           **kwargs)
         return bwdlattice
     
-    def _do_fwdbwd_pass_var_hmm_c(self, frameLogVarParams, chain):
+    def _do_forward_pass_var_chain(self, frameVarParams, chain, **kwargs):
+        """run forward pass, assuming the variational approximation
+        that each HMM is isolated, and for each chain n, the corresponding
+        'observation likelihood' is given by frameVarParams[n]
+        """
+        return self.HMM[chain]._do_forward_pass(frameVarParams,
+                                                **kwargs)
+    
+    def _do_backward_pass_var_chain(self, frameVarParams, chain, **kwargs):
+        """run backward pass, assuming the variational approximation
+        that each HMM is isolated, and for the given chain, the corresponding
+        'observation likelihood' is given by frameVarParams
+        """
+        return self.HMM[chain]._do_backward_pass(frameVarParams,
+                                                 **kwargs)
+    
+    def _do_fwdbwd_pass_var_hmm_c_deprecated(self, frameLogVarParams, chain):
         """n is the chain number
+        
+        here, frameLogVarParams are the estimated variational parameters, for the given
+        chain 'chain'.
+        
+        deprecated: from scipy 0.11-dev, use cython implementation from hmm module
         """
         nframes = frameLogVarParams.shape[0]
         n = chain
@@ -728,7 +816,7 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         
         return fwdloglattice, bwdloglattice
     
-    def _do_fwdbwd_pass_var_c(self, frameLogVarParams):
+    def _do_fwdbwd_pass_var_c_deprecated(self, frameLogVarParams):
         nframes = frameLogVarParams[0].shape[0]
         
         fwdbwd_callLine = "computeForwardBackward(nframes, n_states, "+\
@@ -739,7 +827,7 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
         
         for n in range(self._n_chains):
             fwdloglattice[n], bwdloglattice[n] = \
-                                           self._do_fwdbwd_pass_var_hmm_c(\
+                                           self._do_fwdbwd_pass_var_hmm_c_deprecated(\
                                                     frameLogVarParams[n], n)
         
         return fwdloglattice, bwdloglattice
@@ -758,17 +846,19 @@ class _BaseFHMM(BaseEstimator): # TODO: should it be subclass of _BaseHMM?
             ## print params # DEBUG
             self.HMM[n]._do_mstep(stats[n], params, **kwargs)
 
-class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
+class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHMM
     """Class implementing factorial HMM
     
+    Assuming conditional Gaussian emission model where the mean is the sum
+    over the Markov chains of the means of the 'active' states, and the
+    covariance matrix does not depend on the states.
     
-    
-    using the HMM base class provided by scikits.learn.hmm
     """
-
+    
     def __init__(self, cvtype='full',
                  means_prior=None, means_weight=0,
                  covars_prior=1e-2, covars_weight=1,
+                 n_components=None,
                  n_states=[2,2],
                  startprob=None, transmat=None,
                  startprob_prior=None,
@@ -776,10 +866,12 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
                  HMM=None):
         """
         """
-        super(GaussianFHMM, self).__init__(n_states, 
-                                           startprob, transmat,
-                                           startprob_prior,
-                                           transmat_prior)
+        super(GaussianFHMM, self).__init__(n_components=n_components,
+                                           n_states=n_states, 
+                                           startprob=startprob,
+                                           transmat=transmat,
+                                           startprob_prior=startprob_prior,
+                                           transmat_prior=transmat_prior)
         
         if startprob is None or \
                len(startprob)!=self._n_chains:
@@ -848,8 +940,6 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
         state_sequences, posteriors = super(GaussianFHMM, self).decode_var(\
                                              obs=obs,
                                              n_innerLoop=n_innerLoop,
-                                             maxrank=maxrank,
-                                             beamlogprob=beamlogprob,
                                              verbose=verbose,
                                              debug=debug,
                                              n_repeatPerChain=n_repeatPerChain,
@@ -878,7 +968,7 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
             cv = np.cov(np.concatenate(obs),rowvar=0)
             if not cv.shape:
                 cv.shape = (1, 1)
-            self._covars = _distribute_covar_matrix_to_match_cvtype(
+            self._covars = distribute_covar_matrix_to_match_covariance_type(
                 cv, self._cvtype, 1)
         
         if 'm' in params:
@@ -887,14 +977,10 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
                 # TODO: if cvtype not full, then probably issue here!
                 self._means[n] = np.dot(np.random.randn(self._n_states[n],
                                                         self.n_features), \
-                                   np.double(linalg.sqrtm(self._covars[0]))) / \
+                                   np.double(linalg.sqrtm(self.covars[0])))/\
                                      self._n_chains + \
                                  np.concatenate(obs).mean(axis=0) / \
                                      self._n_chains
-                
-        ## print self.means#DEBUG
-        ## print self.HMM#DEBUG
-        ## print self.covars#DEBUG
     
     @property
     def cvtype(self):
@@ -904,6 +990,27 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
         """
         return self._cvtype
     
+    # means of corresponding "regular" hmm, as a property:
+    def _get__means_(self):
+        pass
+    def _set__means_(self, means):
+        pass
+    
+    _means_ = property(_get__means_, _set__means_)
+    
+    # same for the covariances:
+    def _get__covars_(self):
+        """Because the _covars_, normally the internal value, has to
+        be created from the _covars_ of each individual HMMs
+        """
+        return self._covars
+    
+    def _set__covars_(self, covars):
+        pass
+    
+    _covars_ = property(_get__covars_, _set__covars_)
+
+    # means as list of means for each HMM chain:
     def _get_means(self):
         """Mean parameters for each state."""
         return self._means
@@ -926,6 +1033,7 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
     
     means = property(_get_means, _set_means)
     
+    # same for the covariance, for each HMM chain
     def _get_covars(self):
         """Return covars as a full matrix."""
         if self.cvtype == 'full':
@@ -1055,7 +1163,7 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
             ## print newMean
             ## print newMean #DEBUG
             for n in range(self._n_chains):
-                n0 = npsum(self.n_states[:n])
+                n0 = np.sum(self.n_states[:n])
                 n1 = n0 + self.n_states[n]
                 self._means[n] = newMean[n0:n1]
         
@@ -1136,7 +1244,7 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
         posteriors = {}
         logPost = {}
         for n in range(self.n_chains):
-            n0 = npsum(self.n_states[:n])
+            n0 = np.sum(self.n_states[:n])
             n1 = n0 + self.n_states[n]
             if self.withNoiseF0 or self.withFlatFilter:
                 #do not take last element, which is noise
@@ -1190,7 +1298,7 @@ class GaussianFHMM(_BaseFHMM): # should subclass also GaussianHMM
         logPost = {}
         
         for n in range(self._n_chains): 
-            n0 = npsum(self.n_states[:n])
+            n0 = np.sum(self.n_states[:n])
             n1 = n0 + self.n_states[n]
             posteriors[n] = normalize(amplitudes[:,n0:n1], axis=1)
             logPost[n] = np.log(posteriors[n])

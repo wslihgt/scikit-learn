@@ -1,5 +1,6 @@
 2012-03-19  Jean-Louis Durrieu  <jean-louis.durrieu@epfl.ch>
 
 	* _hmmc.pyx (_logsum): creating _logsum_scale to reproduce scaling
-	
+	(_logsum): edit: removing _logsum_scale, _logsum actually seems to 
+	do the job (avoid under/overflows)
 
