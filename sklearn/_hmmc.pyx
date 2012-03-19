@@ -19,6 +19,28 @@ def _logsum(int N, np.ndarray[dtype_t, ndim=1] X):
         Xsum += exp(X[i] - maxv)
     return log(Xsum) + maxv
 
+# tried to implement scaling by Rabiner, but might not be necessary
+# with logsum implementation
+##@cython.boundscheck(False)
+##def _logsum_scale(int N, np.ndarray[dtype_t, ndim=1] X):
+##    """_logsum_scale:
+##    returns log(sum(exp(X - X.max()))), which is also
+##    log(sum(exp(X)) / exp(X.max()))
+    
+##    This provides an array 'scaled' in such a way as described in
+##    L. Rabiner, '',
+    
+##    which aims at avoiding overflows/underflows in the computation
+##    of the forward and backward variables. 
+##    """
+##    cdef int i
+##    cdef double maxv, Xsum
+##    Xsum = 0.0
+##    maxv = X.max()
+##    for i in xrange(N):
+##        Xsum += exp(X[i] - maxv)
+##    return log(Xsum)
+
 
 @cython.boundscheck(False)
 def _forward(int n_observations, int n_components, \
