@@ -43,10 +43,11 @@ from .mixture import (distribute_covar_matrix_to_match_covariance_type,
 if sklearn.__version__.split('.')[1] in ('9','10','8'): #sklearn
     from .utils.extmath import logsum
 else:
-    try:
-        from ._hmmc import _logsum as logsum
-    except ImportError:
-        raise ImportError("Problem loading logsum from sklearn._hmmc module")
+    from sklearn.utils.extmath import logsumexp as logsum
+    ##try:
+    ##    from ._hmmc import _logsum as logsum
+    ##except ImportError:
+    ##    raise ImportError("Problem loading logsum from sklearn._hmmc module")
         
 
 # replace inline by cython, when possible. Here: use current 0.11-dev
@@ -754,16 +755,14 @@ class _BaseFactHMM(_BaseHMM):
         that each HMM is isolated, and for each chain n, the corresponding
         'observation likelihood' is given by frameVarParams[n]
         """
-        return self.HMM[chain]._do_forward_pass(frameVarParams,
-                                                **kwargs)
+        return self.HMM[chain]._do_forward_pass(frameVarParams)
     
     def _do_backward_pass_var_chain(self, frameVarParams, chain, **kwargs):
         """run backward pass, assuming the variational approximation
         that each HMM is isolated, and for the given chain, the corresponding
         'observation likelihood' is given by frameVarParams
         """
-        return self.HMM[chain]._do_backward_pass(frameVarParams,
-                                                 **kwargs)
+        return self.HMM[chain]._do_backward_pass(frameVarParams)
     
     def _do_fwdbwd_pass_var_hmm_c_deprecated(self, frameLogVarParams, chain):
         """n is the chain number
@@ -937,13 +936,13 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         
         nframes = obs.shape[0]
         
-        state_sequences, posteriors = super(GaussianFHMM, self).decode_var(\
-                                             obs=obs,
-                                             n_innerLoop=n_innerLoop,
-                                             verbose=verbose,
-                                             debug=debug,
-                                             n_repeatPerChain=n_repeatPerChain,
-                                             **kwargs)
+        logprob, state_sequences, posteriors = super(GaussianFHMM, self).decode_var(\
+                                                  obs=obs,
+                                                  n_innerLoop=n_innerLoop,
+                                                  verbose=verbose,
+                                                  debug=debug,
+                                                  n_repeatPerChain=n_repeatPerChain,
+                                                  **kwargs)
         
         # compute outputmeans :
         outputMean = np.zeros([nframes,self.n_features])
