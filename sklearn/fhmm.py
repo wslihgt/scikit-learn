@@ -118,6 +118,43 @@ methods = ('full', 'variational')
 
 class _BaseFactHMM(_BaseHMM): 
     """ Base class for Factorial HMM
+    
+    Attributes
+    ----------
+    n_components : int
+        Number of states in the model.
+
+    n_states : list
+        List of number of components for each HMM chain.
+
+    n_chains : int
+        Number of Markov chains in the model.
+
+    HMM : list
+        List of HMM instances, 
+        
+    transmat : array, shape (`n_components`, `n_components`)
+        Matrix of transition probabilities between states.
+
+    startprob : array, shape ('n_components`,)
+        Initial state occupation distribution.
+
+    transmat_prior : array, shape (`n_components`, `n_components`)
+        Matrix of prior transition probabilities between states.
+
+    startprob_prior : array, shape ('n_components`,)
+        Initial state occupation prior distribution.
+
+    algorithm : string, one of the decoder_algorithms
+        decoder algorithm
+
+    random_state: RandomState or an int seed (0 by default)
+        A random number generator instance
+
+    See Also
+    --------
+    hmm : hidden Markov model
+
     """
     def __init__(self,
                  n_components=None,
@@ -172,62 +209,137 @@ class _BaseFactHMM(_BaseHMM):
         self.transmat_prior = None
 
     def eval(self, obs, method='variational', **kwargs):
+        """Compute the log probability under the model and compute posteriors
+        
+        Parameters
+        ----------
+        obs : array_like, shape (n, n_features)
+            Sequence of n_features-dimensional data points.  Each row
+            corresponds to a single point in the sequence.
+            
+        Returns
+        -------
+        logprob : float
+            Log likelihood of the sequence `obs`
+        posteriors: array_like, shape (n, n_components)
+            Posterior probabilities of each state for each
+            observation.
+            NB: in case method=='variational', the variational approximation
+            is used, and the returned posteriors variable is a list of n_chains
+            posterior matrices, for chain nc:
+                array_like, shape (n, n_states[nc])
+            
+        See Also
+        --------
+        score : Compute the log probability under the model
+        decode : Find most likely state sequence corresponding to a `obs`
+        """
         if not(method in methods):
             raise ValueError("Desired method should be in "+methods)
         
         eval_meth = {'full': super(_BaseFactHMM, self).eval,
                      'variational': self.eval_var}
         return eval_meth[method](obs, **kwargs)
-        
+    
     def eval_var(self, obs, n_innerLoop=10,
-                 tol=0.0001):
-        """ TODO: to be tested and corrected according to decode_var"""
+                 tol=0.0001, postInitMeth='random',
+                 verbose=False, debug=False):
+        """Compute the log probability under the model and compute posteriors
+        
+        Uses the variational approximation to compute the posterior
+        probabilities.
+        
+        TODO: the returned log-likelihood is not the exact or even its
+            approximation. [Gha97] may provide some work-around, if such a
+            computation is required.
+        
+        Parameters
+        ----------
+        obs : array_like, shape (n, n_features)
+            Sequence of n_features-dimensional data points.  Each row
+            corresponds to a single point in the sequence.
+
+        n_innerLoop : int
+            Number of inner loops (over the n_chains Markov chains) to be done
+            to refine the posterior estimation.
+
+        tol : float32
+            Tolerance parameter for the inner loop stopping condition
+
+        postInitMethod : string
+            Decide the initializing method for the posterior probabilities,
+            choose in ('random', 'nmf', 'lms', 'equi').
+            See _init_posterior_var.
+            
+        Returns
+        -------
+        logprob : float
+            Log likelihood of the sequence `obs`
+        posteriors: list
+            List of n_chains posterior probabilities, one per Markov chain.
+            For chain nc:
+                array_like, shape (n, n_states[nc])
+            Posterior probabilities of each state for each
+            observation, as approximated by the variational algorithm.
+            
+        See Also
+        --------
+        score_var : Compute the log probability under the model
+        decode_var : Find most likely state sequence corresponding to a `obs`
+        
+        """
         obs = np.asanyarray(obs)
         nframes = obs.shape[0]
         
-        ## posteriors = np.zeros(nframes, self.n_states_all)
-        posteriors = {}
-        logPost = {}
-        for n in range(self._n_chains):
-            posteriors[n] = np.ones(self._n_states[n], nframes)/\
-                            (1.*self._n_states[n])
-            logPost[n] = np.zeros(self._n_states[n], nframes)
+        # initializing the posterior probabilities
+        posteriors, logPost = self._init_posterior_var(obs=obs,
+                                                       method=postInitMeth,
+                                                       debug=debug,
+                                                       verbose=verbose)
         
         for i in range(n_innerLoop):
+            if verbose:
+                print "    inner loop for variational approx.", inn,\
+                      "over", n_innerLoop
             # for stopping condition
             posteriors0 = list(posteriors)
             logPost0 = list(logPost)
             # compute variational parameters as in [Gha97]
             # "% first compute h values based on mf"
-            frameVarParams = self._compute_var_params(obs, posterior)
             # Forward Backward for each chain:
             for n in range(self.n_chains):
+                # computing log variational parameters
+                if verbose:
+                    print "        chain number:", n, "in", self._n_chains
+                frameLogVarParams = self._compute_var_params_chain(\
+                                                obs=obs,
+                                                posteriors=posteriors,
+                                                chain=n, debug=debug)
                 ## idxStates = np.sum(self.n_states[:n])+\
                 ##             np.arange(self.n_states[n])
                 ## idxStates = np.int32(idxStates)
-                dumpLogProba, fwdLattice = self.HMM[n]._do_forward_pass(\
-                                                    frameVarParams[n],
-                                                    maxrank,
-                                                    beamlogprob)
-                del dumpLogProba
-                bwdlattice = self.HMM[n]._do_backward_pass(\
-                                                    frameVarParams[n],
-                                                    fwdlattice,
-                                                    maxrank,
-                                                    beamlogprob)
+                logprob, fwdLattice = self._do_forward_pass_var_chain(\
+                                              frameVarParams=frameLogVarParams,
+                                              chain=n,
+                                              debug=debug)
+                bwdlattice = self._do_backward_pass_var_chain(\
+                                              frameVarParams=frameLogVarParams,
+                                              chain=n,
+                                              debug=debug)
                 gamma = fwdlattice + bwdlattice
-                logPost[n] = gamma - logsum(gamma, axis=1)
-                posteriors[n] = np.exp(logPost[n]).T
+                logPost[n] = (gamma - logsum(gamma, axis=1)).T
+                posteriors[n] = np.exp(logPost[n])
             
-            delmf = np.sum(np.sum(np.concatenate(posteriors) * \
-                                np.concatenate(logPost))) \
-                  - np.sum(np.sum(np.concatenate(posteriors) * \
-                                np.concatenate(logPost0)))
-            if delmf < nframes*tol:
+            delmf = np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
+                                np.concatenate(logPost.values(),axis=1)))- \
+                    np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
+                                np.concatenate(logPost0.values(),axis=1)))
+            
+            if delmf < nframes*tol and i>0:
                 itermf = i
                 break
         
-        return posteriors # should return also logL: approximate of it?
+        return frameLogVarParams, posteriors # approx. of loglikelihood?
 
     def decode(self, obs, method='variational', **kwargs):
         if not(method in methods):
@@ -343,8 +455,8 @@ class _BaseFactHMM(_BaseHMM):
                     
                     
             # stopping condition (from [Gha97] and Matlab code)
-            # measuring relative difference between previous and current posterior
-            # probabilities.
+            # measuring relative difference between previous and current
+            # posterior probabilities.
             delmf = np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
                                 np.concatenate(logPost.values(),axis=1)))- \
                     np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
@@ -355,7 +467,8 @@ class _BaseFactHMM(_BaseHMM):
                 itermf = inn
                 break
             
-        # then use "stabilized" variational params to compute the state sequences:
+        # then use "stabilized" variational params to compute
+        # the state sequences:
         state_sequences = {}
         ## frameVarParams = self._compute_var_params(obs, posteriors)
         # print frameVarParams #DEBUG
@@ -371,12 +484,28 @@ class _BaseFactHMM(_BaseHMM):
         # TODO return a meaningful logprob value:
         logprob = None
         return logprob, state_sequences, posteriors
+
+    def fit(self, obs, method='variational', **kwargs):
+        """fit(obs,
+        
+        Arguments
+        
+        See also:
+        fit_var: variational approach to fit the FHMM parameters to obs
+        """
+        if not(method in methods):
+            raise ValueError("Desired method should be in "+methods)
+        
+        fit_meth = {'full': super(_BaseFactHMM, self).fit,
+                    'variational': self.fit_var}
+        return fit_meth[method](obs, **kwargs)
     
     def fit_var(self, obs, n_iter=100, n_innerLoop=10,
                 thresh=1e-2, params=string.letters,
                 init_params=string.letters,
                 tol=0.0001, innerTol=1e-6,
                 verbose=False, debug=False,
+                methInitPost='random',
                 **kwargs):
         """fit_var
         
@@ -392,22 +521,17 @@ class _BaseFactHMM(_BaseHMM):
                 print "iteration", i,"over",n_iter
             # Expectation step
             stats = self._initialize_sufficient_statistics_var()
-            ##print stats.keys()#DEBUG
             curr_logprob = 0
             for seq in obs:
                 nframes = seq.shape[0]
-                posteriors = {}
-                logPost = {}
+                
                 fwdlattice = {}
                 bwdlattice = {}
-                for n in range(self._n_chains): 
-                    # posteriors[n] = np.ones([nframes, self._n_states[n]])/\
-                    #                 (1.*self._n_states[n])
-                    posteriors[n] = np.random.rand(nframes,
-                                                   self._n_states[n])
-                    posteriors[n] = normalize(posteriors[n])
-                    logPost[n] = np.log(posteriors[n])
-                    # np.zeros([nframes, self._n_states[n]])
+
+                posteriors, logPost = self._init_posterior_var(obs=obs,
+                                                       method=postInitMeth,
+                                                       debug=debug,
+                                                       verbose=verbose)
                 
                 for inn in range(n_innerLoop):
                     if verbose:
@@ -449,9 +573,11 @@ class _BaseFactHMM(_BaseHMM):
                         ##                                         frameLogVarParams,
                         ##                                         chain=n)
                         dumpLogProba, fwdlattice[n] = \
-                            self._do_forward_pass_var_chain(frameLogVarParams, chain=n)
+                            self._do_forward_pass_var_chain(frameLogVarParams,
+                                                            chain=n)
                         bwdlattice[n] = \
-                            self._do_backward_pass_var_chain(frameLogVarParams, chain=n)
+                            self._do_backward_pass_var_chain(frameLogVarParams,
+                                                             chain=n)
                         
                         if debug:
                             plt.figure(1)
@@ -483,10 +609,14 @@ class _BaseFactHMM(_BaseHMM):
                     
                     # Calculate condition to stop inner loop
                     #     from pmhmm.m of [Gha97]
-                    delmf = np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
-                                        np.concatenate(logPost.values(),axis=1)))- \
-                            np.sum(np.sum(np.concatenate(posteriors.values(),axis=1)*\
-                                        np.concatenate(logPost0.values(),axis=1)))
+                    delmf = np.sum(np.sum(np.concatenate(posteriors.values(),
+                                                         axis=1)*\
+                                        np.concatenate(logPost.values(),
+                                                       axis=1)))- \
+                            np.sum(np.sum(np.concatenate(posteriors.values(),
+                                                         axis=1)*\
+                                        np.concatenate(logPost0.values(),
+                                                       axis=1)))
                     ## print delmf#DEBUG
                     if delmf < nframes*0.000001 and inn>0:
                         itermf = inn
