@@ -36,7 +36,7 @@ from scipy.signal import lfilter
 import warnings
 # from scikits.learn (sklearn) from v0.9:
 import sklearn
-from .hmm import _BaseHMM, GaussianHMM
+from .hmm import _BaseHMM, GaussianHMM, decoder_algorithms
 from .mixture import (distribute_covar_matrix_to_match_covariance_type,
                       _validate_covars)
 
@@ -114,7 +114,7 @@ def normalize(A, axis=None):
     return A / Asum
 
 # methods for estimation/evaluation/decoding of FHMM:
-methods = ('full', 'variational')
+estimation_methods = ('full', 'variational')
 
 class _BaseFactHMM(_BaseHMM): 
     """ Base class for Factorial HMM
@@ -123,9 +123,9 @@ class _BaseFactHMM(_BaseHMM):
     ----------
     n_components : int
         Number of states in the model.
-
-    n_states : list
-        List of number of components for each HMM chain.
+        
+    n_components_per_chain : list
+        List of number of components for each Markov chain.
 
     n_chains : int
         Number of Markov chains in the model.
@@ -133,8 +133,12 @@ class _BaseFactHMM(_BaseHMM):
     HMM : list
         List of HMM instances, 
         
-    transmat : array, shape (`n_components`, `n_components`)
+    transmat_ : array, shape (`n_components`, `n_components`)
         Matrix of transition probabilities between states.
+        
+    transmat_per_chain : list
+        List of matrices of transition probabilities between states,
+        one per Markov chain.
 
     startprob : array, shape ('n_components`,)
         Initial state occupation distribution.
@@ -157,35 +161,32 @@ class _BaseFactHMM(_BaseHMM):
 
     """
     def __init__(self,
-                 n_components=None,
-                 n_states=[2,2], 
-                 startprob=None, transmat=None,
+                 n_components_per_chain=[1], 
+                 startprob_per_chain=None,
+                 transmat_per_chain=None,
                  startprob_prior=None,
                  transmat_prior=None,
                  algorithm="viterbi",
+                 estimation_method='variational',
                  HMM=None):
         """
         """
-        if not(n_components is None):
-            warnings.warn("For factorial HMMs, the number of components \n"+\
-                          "is given by the list of individual componenets\n"+\
-                          "in the n_states list.")
-        self.n_components = np.prod(n_states)
-        self._n_states = list(n_states)
-        self._n_chains = len(self._n_states)
+        self._n_components_per_chain = list(n_components_per_chain)
+        self._n_components = np.prod(self._n_components_per_chain)
+        self._n_chains = len(self._n_components_per_chain)
         # number of states, but not all possible states,
         # only sum of number of states for each chain:
-        self._n_states_all = np.sum(n_states)
+        self._n_components_per_chain_all = np.sum(n_components_per_chain)
         
         ## the arguments are distributed to the individual HMMs
         ## of the factorial HMM
-        if startprob is None or \
-               len(startprob)!=self._n_chains:
-            startprob = [None] * self._n_chains
+        if startprob_per_chain is None or \
+               len(startprob_per_chain)!=self._n_chains:
+            startprob_per_chain = [None] * self._n_chains
             
-        if transmat is None or \
-               len(transmat)!=self._n_chains:
-            transmat = [None] * self._n_chains
+        if transmat_per_chain is None or \
+               len(transmat_per_chain)!=self._n_chains:
+            transmat_per_chain = [None] * self._n_chains
         
         if startprob_prior is None or \
                len(startprob_prior)!=self._n_chains:
@@ -196,19 +197,35 @@ class _BaseFactHMM(_BaseHMM):
             transmat_prior = [None] * self._n_chains        
         
         self.HMM = {}
-        
-        for n in range(self._n_chains):
-            self.HMM[n] = _BaseHMM(n_states[n], startprob[n], transmat[n],
-                                   startprob_prior=startprob_prior[n],
-                                   transmat_prior=transmat_prior[n])
-        
-        # to avoid getting an error when printing the object:
-        self.startprob = None
-        self.transmat = None
-        self.startprob_prior = None
-        self.transmat_prior = None
 
-    def eval(self, obs, method='variational', **kwargs):
+        if HMM is None or \
+            len(HMM) != self._n_chains or \
+            np.any([not(isinstance(h, _BaseHMM)) \
+                    for n in range(self._n_chains)]) or \
+            np.any([HMM[n].n_components != self._n_components_per_chain \
+                    for n in range(self._n_chains)]):
+            for n in range(self._n_chains):
+                self.HMM[n] = _BaseHMM(n_components_per_chain[n],
+                                       startprob_per_chain[n],
+                                       transmat_per_chain[n],
+                                       startprob_prior=startprob_prior[n],
+                                       transmat_prior=transmat_prior[n])
+        else:
+            self.HMM = list(HMM)
+        
+        if algorithm in decoder_algorithms:
+            self._algorithm = algorithm
+        else:
+            self._algorithm = "viterbi"
+        
+        if estimation_method in estimation_methods:
+            self._estimation_method = estimation_method
+        else:
+            self._estimation_method = "variational"
+        
+    def eval(self, obs,
+             estimation_method=None,
+             **kwargs):
         """Compute the log probability under the model and compute posteriors
         
         Parameters
@@ -227,19 +244,18 @@ class _BaseFactHMM(_BaseHMM):
             NB: in case method=='variational', the variational approximation
             is used, and the returned posteriors variable is a list of n_chains
             posterior matrices, for chain nc:
-                array_like, shape (n, n_states[nc])
+                array_like, shape (n, n_components_per_chain[nc])
             
         See Also
         --------
         score : Compute the log probability under the model
         decode : Find most likely state sequence corresponding to a `obs`
         """
-        if not(method in methods):
-            raise ValueError("Desired method should be in "+methods)
-        
+        self._set_estimation_method(estimation_method)
+
         eval_meth = {'full': super(_BaseFactHMM, self).eval,
                      'variational': self.eval_var}
-        return eval_meth[method](obs, **kwargs)
+        return eval_meth[self._estimation_method](obs, **kwargs)
     
     def eval_var(self, obs, n_innerLoop=10,
                  tol=0.0001, postInitMeth='random',
@@ -278,7 +294,7 @@ class _BaseFactHMM(_BaseHMM):
         posteriors: list
             List of n_chains posterior probabilities, one per Markov chain.
             For chain nc:
-                array_like, shape (n, n_states[nc])
+                array_like, shape (n, n_components_per_chain[nc])
             Posterior probabilities of each state for each
             observation, as approximated by the variational algorithm.
             
@@ -315,8 +331,8 @@ class _BaseFactHMM(_BaseHMM):
                                                 obs=obs,
                                                 posteriors=posteriors,
                                                 chain=n, debug=debug)
-                ## idxStates = np.sum(self.n_states[:n])+\
-                ##             np.arange(self.n_states[n])
+                ## idxStates = np.sum(self.n_components_per_chain[:n])+\
+                ##             np.arange(self.n_components_per_chain[n])
                 ## idxStates = np.int32(idxStates)
                 logprob, fwdLattice = self._do_forward_pass_var_chain(\
                                               frameVarParams=frameLogVarParams,
@@ -340,14 +356,16 @@ class _BaseFactHMM(_BaseHMM):
                 break
         
         return frameLogVarParams, posteriors # approx. of loglikelihood?
-
-    def decode(self, obs, method='variational', **kwargs):
-        if not(method in methods):
-            raise ValueError("Desired method should be in "+methods)
+    
+    def decode(self, obs, estimation_method='variational', **kwargs):
+        """returns most likely seq of states, and
+        the posterior probabilities.
+        """
+        self._set_estimation_method(estimation_method)
         
         decode_meth = {'full': super(_BaseFactHMM, self).decode,
                        'variational': self.decode_var}
-        return decode_meth[method](obs, **kwargs)
+        return decode_meth[self._estimation_method](obs, **kwargs)
     
     def decode_var(self, obs, n_innerLoop=10,
                    verbose=False, debug=False,
@@ -452,8 +470,7 @@ class _BaseFactHMM(_BaseHMM):
                         #       'fwd',np.any(np.isinf(fwdlattice[n])),\
                         #       'bwd',np.any(np.isinf(bwdlattice[n]))
                         ## raw_input("press \'any\' key... Doh!")
-                    
-                    
+                        
             # stopping condition (from [Gha97] and Matlab code)
             # measuring relative difference between previous and current
             # posterior probabilities.
@@ -485,7 +502,7 @@ class _BaseFactHMM(_BaseHMM):
         logprob = None
         return logprob, state_sequences, posteriors
 
-    def fit(self, obs, method='variational', **kwargs):
+    def fit(self, obs, estimation_method='variational', **kwargs):
         """fit(obs,
         
         Arguments
@@ -493,19 +510,19 @@ class _BaseFactHMM(_BaseHMM):
         See also:
         fit_var: variational approach to fit the FHMM parameters to obs
         """
-        if not(method in methods):
-            raise ValueError("Desired method should be in "+methods)
+        self._set_estimation_method(estimation_method)
         
         fit_meth = {'full': super(_BaseFactHMM, self).fit,
                     'variational': self.fit_var}
-        return fit_meth[method](obs, **kwargs)
+        
+        return fit_meth[self._estimation_method](obs, **kwargs)
     
     def fit_var(self, obs, n_iter=100, n_innerLoop=10,
                 thresh=1e-2, params=string.letters,
                 init_params=string.letters,
                 tol=0.0001, innerTol=1e-6,
                 verbose=False, debug=False,
-                methInitPost='random',
+                postInitMeth='random',
                 **kwargs):
         """fit_var
         
@@ -528,10 +545,10 @@ class _BaseFactHMM(_BaseHMM):
                 fwdlattice = {}
                 bwdlattice = {}
 
-                posteriors, logPost = self._init_posterior_var(obs=obs,
-                                                       method=postInitMeth,
-                                                       debug=debug,
-                                                       verbose=verbose)
+                posteriors, logPost = self._init_posterior_var(obs=seq,
+                                                               method=postInitMeth,
+                                                               debug=debug,
+                                                               verbose=verbose)
                 
                 for inn in range(n_innerLoop):
                     if verbose:
@@ -541,7 +558,7 @@ class _BaseFactHMM(_BaseHMM):
                     posteriors0 = dict(posteriors)
                     logPost0 = dict(logPost)
                     ## the following commented version works well for small
-                    ## scale problems, but with big _n_states, one should
+                    ## scale problems, but with big _n_components_per_chain, one should
                     ## consider not storing all the variational params.
                     ## # compute variational parameters as in [Gha97]
                     ## frameVarParams = self._compute_var_params(seq, posteriors)
@@ -549,8 +566,8 @@ class _BaseFactHMM(_BaseHMM):
                     ## fwdlattice, bwdlattice = self._do_fwdbwd_pass_var_c(\
                     ##                                           frameVarParams)
                     for n in range(self._n_chains):
-                        ## idxStates = np.sum(self.n_states[:n])+\
-                        ##             np.arange(self.n_states[n])
+                        ## idxStates = np.sum(self.n_components_per_chain[:n])+\
+                        ##             np.arange(self.n_components_per_chain[n])
                         ## idxStates = np.int32(idxStates)
                         ## dumpLogProba, fwdlattice[n] = \
                         ##     self.HMM[n]._do_forward_pass(\
@@ -635,8 +652,8 @@ class _BaseFactHMM(_BaseHMM):
 
             # correcting accumulated stats
             for n in range(self._n_chains):
-                n0 = np.sum(self.n_states[:n])
-                n1 = n0 + self.n_states[n]
+                n0 = np.sum(self.n_components_per_chain[:n])
+                n1 = n0 + self.n_components_per_chain[n]
                 #stats['cor'][np.ix_(idxStates,idxStates)]
                 stats['cor'][n0:n1,n0:n1] = np.diag(stats[n]['post'])
                 
@@ -668,29 +685,45 @@ class _BaseFactHMM(_BaseHMM):
 
         self.startprob = None
         self.transmat = None
-    
+
+    def _set_estimation_method(self, estimation_method):
+        if not(hasattr(self, '_estimation_method')) or \
+              estimation_method is not None:
+            if not(estimation_method in estimation_methods):
+                warn("Desired estimation method should be in "+\
+                     estimation_methods+\
+                     ",\nfalling back on default variational method.")
+                self._estimation_method = "variational"
+            else:
+                self._estimation_method = estimation_method
+        
     @property
     def n_chains(self):
         """Number of states in the model."""
         return self._n_chains
     
     @property
-    def n_states(self):
-        """Number of states in the model."""
-        return self._n_states
+    def n_components(self):
+        """Number of states in the full HMM model."""
+        return self._n_components
+    
     @property
-    def n_states_all(self):
+    def n_components_per_chain(self):
         """Number of states in the model."""
-        return self._n_states_all
+        return self._n_components_per_chain
+    @property
+    def n_components_per_chain_all(self):
+        """Number of states in the model."""
+        return self._n_components_per_chain_all
 
-    # FHMM equivalent to HMM with prod(n_states), e.g. for each chain n,
-    # if n_states[n]=K, then the total n_components is K**(n_chains)
+    # FHMM equivalent to HMM with prod(n_components_per_chain), e.g. for each chain n,
+    # if n_components_per_chain[n]=K, then the total n_components is K**(n_chains)
     # 
     # It is preferred not to store all the corresponding transition and
     # start probabilities, computing them only if required by the user.
     #
     # TODO: check that these are not called internally by some function
-    # in "general" hmm module; override such methods.
+    # in "general" hmm module; override such methods (especially: fit, eval, decode...).
     #
     # NB: these computations do not prevent over/underflows, since the goal
     # of an FHMM implementation is not to use it as a regular HMM.
@@ -708,13 +741,47 @@ class _BaseFactHMM(_BaseHMM):
         
     @property
     def _log_startprob(self):
-        return np.log(startprob_)
+        return np.log(self.startprob_)
+    
+    # transmat_per_chain as property:
+    def _get_transmat_per_chain(self):
+        """the transition matrices as a list of the HMM transition matrices
+        """
+        return [self.HMM[n].transmat_ for n in range(self._n_chains)]
+    
+    def _set_transmat_per_chain(self, transmat):
+        if len(transmat) != self._n_chains:
+            raise ValueError("Length of transmat list should equal the "+\
+                             "number of Markov chains.")
+        else:
+            for n in range(self._n_chains):
+                self.HMM[n].transmat_ = transmat[n]
+    
+    transmat_per_chain_ = property(_get_transmat_per_chain,
+                                   _set_transmat_per_chain)
+    
+    # startprob_per_chain as property:
+    def _get_startprob_per_chain(self):
+        """the transition matrices as a list of the HMM transition matrices
+        """
+        return [self.HMM[n].startprob_ for n in range(self._n_chains)]
+    
+    def _set_startprob_per_chain(self, startprob):
+        if len(startprob) != self._n_chains:
+            raise ValueError("Length of startprob list should equal the "+\
+                             "number of Markov chains.")
+        else:
+            for n in range(self._n_chains):
+                self.HMM[n].startprob_ = startprob[n]
+    
+    startprob_per_chain_ = property(_get_startprob_per_chain,
+                                   _set_startprob_per_chain)
     
     # _log_transmat and transmat_ as property:
     @property
     def transmat_(self):
         """The actual transmat_ for the full HMM is given as
-        a prod(n_states) x prod(n_states) matrix.
+        a prod(n_components_per_chain) x prod(n_components_per_chain) matrix.
         
         
         """
@@ -728,17 +795,19 @@ class _BaseFactHMM(_BaseHMM):
         # is therefore related to the kronecker product properties:
         # here, the states are such that, for state i_n and j_n of chain n, the 
         # corresponding transition probability is given in transmat_[i,j]
-        # where i = \sum_n (\sum_{m=0}^{n-1}n_states[m] i_n), and likewise for j.
+        # where
+        #    i = \sum_n (\sum_{m=n+1}^{n_chains}n_components_per_chain[m] i_n),
+        # and likewise for j.
         return transmat_
     
     @property
     def _log_transmat(self):
         """The actual _log_transmat for the full HMM is given as
-        a prod(n_states) x prod(n_states) matrix.
+        a prod(n_components_per_chain) x prod(n_components_per_chain) matrix.
         
         
         """
-        return np.log(transmat_)
+        return np.log(self.transmat_)
     # should not set transmat or log_transmat manually:
     #def _set__log_transmat(self, log_transmat):
     #    pass   
@@ -751,8 +820,8 @@ class _BaseFactHMM(_BaseHMM):
         
         # specific to FHMM: correlation expectation
         #    [Gha97] : the sum_t < S_t S_t'>
-        stats['cor'] = np.zeros([self._n_states_all,
-                                 self._n_states_all])
+        stats['cor'] = np.zeros([self._n_components_per_chain_all,
+                                 self._n_components_per_chain_all])
         return stats
     
     def _accumulate_sufficient_statistics_var(self, stats, seq,
@@ -824,7 +893,7 @@ class _BaseFactHMM(_BaseHMM):
         logPost = {}
         for n in range(self._n_chains): 
             posteriors[n] = np.random.rand(nframes,
-                                           self._n_states[n])
+                                           self._n_components_per_chain[n])
             posteriors[n] = normalize(posteriors[n], axis=1)
             logPost[n] = np.log(posteriors[n])
         return posteriors, logPost
@@ -837,8 +906,8 @@ class _BaseFactHMM(_BaseHMM):
         posteriors = {}
         logPost = {}
         for n in range(self._n_chains):
-            posteriors[n] = np.ones([nframes, self._n_states[n]])/\
-                            (1.*self._n_states[n])
+            posteriors[n] = np.ones([nframes, self._n_components_per_chain[n]])/\
+                            (1.*self._n_components_per_chain[n])
             logPost[n] = np.log(posteriors[n])
         return posteriors, logPost
     
@@ -905,24 +974,24 @@ class _BaseFactHMM(_BaseHMM):
         nframes = frameLogVarParams.shape[0]
         n = chain
         
-        fwdbwd_callLine = "computeForwardBackward(nframes, n_states, "+\
+        fwdbwd_callLine = "computeForwardBackward(nframes, n_components_per_chain, "+\
                           "startprob, transmat,"+\
                           "dens, logdens, logAlpha, logBeta, alpha, beta);"
         
         
         if not frameLogVarParams[n].flags['C_CONTIGUOUS']:
             raise ValueError("FrameVarParams should be C contiguous!")
-        fwdloglattice = np.zeros([nframes, self._n_states[n]])
-        bwdloglattice = np.zeros([nframes, self._n_states[n]])
-        fwdlattice = np.zeros([nframes, self._n_states[n]])
-        bwdlattice = np.zeros([nframes, self._n_states[n]])
+        fwdloglattice = np.zeros([nframes, self._n_components_per_chain[n]])
+        bwdloglattice = np.zeros([nframes, self._n_components_per_chain[n]])
+        fwdlattice = np.zeros([nframes, self._n_components_per_chain[n]])
+        bwdlattice = np.zeros([nframes, self._n_components_per_chain[n]])
         inline(fwdbwd_callLine,
-               arg_names=['nframes', 'n_states', \
+               arg_names=['nframes', 'n_components_per_chain', \
                           'startprob', 'transmat', \
                           'dens', 'logdens', \
                           'logAlpha', 'logBeta', 'alpha', 'beta'],
                local_dict={'nframes': nframes,
-                           'n_states': self._n_states[n],
+                           'n_components_per_chain': self._n_components_per_chain[n],
                            'startprob': self.HMM[n].startprob,
                            'transmat': self.HMM[n].transmat,
                            'dens': np.array([0.]),# unused argument
@@ -948,7 +1017,7 @@ class _BaseFactHMM(_BaseHMM):
     def _do_fwdbwd_pass_var_c_deprecated(self, frameLogVarParams):
         nframes = frameLogVarParams[0].shape[0]
         
-        fwdbwd_callLine = "computeForwardBackward(nframes, n_states, "+\
+        fwdbwd_callLine = "computeForwardBackward(nframes, n_components_per_chain, "+\
                           "startprob, transmat, "+\
                           "dens, logdens, logAlpha, logBeta, alpha, beta);"
         fwdloglattice = {}
@@ -987,28 +1056,30 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
     def __init__(self, cvtype='full',
                  means_prior=None, means_weight=0,
                  covars_prior=1e-2, covars_weight=1,
-                 n_components=None,
-                 n_states=[2,2],
-                 startprob=None, transmat=None,
+                 n_components_per_chain=[2,2],
+                 startprob_per_chain=None,
+                 transmat_per_chain=None,
                  startprob_prior=None,
                  transmat_prior=None,
                  HMM=None):
         """
         """
-        super(GaussianFHMM, self).__init__(n_components=n_components,
-                                           n_states=n_states, 
-                                           startprob=startprob,
-                                           transmat=transmat,
+        super(GaussianFHMM, self).__init__(n_components_per_chain=\
+                                           n_components_per_chain, 
+                                           startprob_per_chain=\
+                                           startprob_per_chain,
+                                           transmat_per_chain=\
+                                           transmat_per_chain,
                                            startprob_prior=startprob_prior,
                                            transmat_prior=transmat_prior)
         
-        if startprob is None or \
-               len(startprob)!=self._n_chains:
-            startprob = [None] * self._n_chains
+        if startprob_per_chain is None or \
+               len(startprob_per_chain)!=self._n_chains:
+            startprob_per_chain = [None] * self._n_chains
             
-        if transmat is None or \
-               len(transmat)!=self._n_chains:
-            transmat = [None] * self._n_chains
+        if transmat_per_chain is None or \
+               len(transmat_per_chain)!=self._n_chains:
+            transmat_per_chain = [None] * self._n_chains
         
         if startprob_prior is None or \
                len(startprob_prior)!=self._n_chains:
@@ -1025,10 +1096,17 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         # keep the running mean for each state of each chain
         self.HMM = {}
         for n in range(self._n_chains):
-            self.HMM[n] = GaussianHMM(n_states[n], cvtype, startprob[n],
-                 transmat[n], startprob_prior[n], transmat_prior[n],
-                 means_prior, means_weight,
-                 covars_prior, covars_weight)
+            self.HMM[n] = GaussianHMM(n_components=\
+                                      n_components_per_chain[n],
+                                      covariance_type=cvtype,
+                                      startprob=startprob_per_chain[n],
+                                      transmat=transmat_per_chain[n],
+                                      startprob_prior=startprob_prior[n],
+                                      transmat_prior=transmat_prior[n],
+                                      means_prior=means_prior,
+                                      means_weight=means_weight,
+                                      covars_prior=covars_prior,
+                                      covars_weight=covars_weight)
         
         self._cvtype = cvtype
         if not cvtype in ['spherical', 'tied', 'diag', 'full']:
@@ -1040,8 +1118,8 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         self.covars_prior = covars_prior
         self.covars_weight = covars_weight
     
-    def decode_var(self, obs, n_innerLoop=10, maxrank=None,
-                   beamlogprob=-np.Inf, verbose=False, debug=False,
+    def decode_var(self, obs, n_innerLoop=10,
+                   verbose=False, debug=False,
                    n_repeatPerChain=None, **kwargs):
         """decode_var
         
@@ -1104,7 +1182,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
             self._means = {}
             for n in range(self._n_chains):
                 # TODO: if cvtype not full, then probably issue here!
-                self._means[n] = np.dot(np.random.randn(self._n_states[n],
+                self._means[n] = np.dot(np.random.randn(self._n_components_per_chain[n],
                                                         self.n_features), \
                                    np.double(linalg.sqrtm(self.covars[0])))/\
                                      self._n_chains + \
@@ -1120,12 +1198,26 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         return self._cvtype
     
     # means of corresponding "regular" hmm, as a property:
-    def _get__means_(self):
-        pass
-    def _set__means_(self, means):
-        pass
-    
-    _means_ = property(_get__means_, _set__means_)
+    @property
+    def _means_(self):
+        # NB: accessing the desired mean
+        # is therefore related to the kronecker product properties:
+        # here, the states are such that, for state i_n and j_n of chain n, the 
+        # corresponding mean is given in means[i,j]
+        # where
+        #    i = \sum_n (\sum_{m=n+1}^{n_chains}n_components_per_chain[m] i_n),
+        # and likewise for j.
+        means = np.zeros([self._n_components,
+                          self.n_features])
+        for n in range(self._n_chains):
+            idxc = np.arange(self._n_components_per_chain[n])
+            idx = np.kron(
+                      np.kron(
+                          np.ones(np.prod(self._n_components_per_chain[:n])),
+                          idxc),
+                      np.ones(np.prod(self._n_components_per_chain[(n+1):])))
+            means += self._means[n][np.int32(idx)]
+        return means
     
     # same for the covariances:
     def _get__covars_(self):
@@ -1152,15 +1244,16 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         
         for n in range(self._n_chains):
             if hasattr(self, 'n_features') and \
-                   means[n].shape != (self._n_states[n], self.n_features):
-                raise ValueError('means must have shape (n_states, n_features)')
-            if means[n].shape[0] != self._n_states[n]:
-                raise ValueError('means must have shape (n_states, n_features)')
+                   means[n].shape != (self._n_components_per_chain[n], self.n_features):
+                raise ValueError('means must have shape (n_components_per_chain, n_features)')
+            if means[n].shape[0] != self._n_components_per_chain[n]:
+                raise ValueError('means must have shape (n_components_per_chain, n_features)')
         
         self._means = list(means)
         self.n_features = self._means[0].shape[1]
     
     means = property(_get_means, _set_means)
+    means_per_chain = property(_get_means, _set_means)
     
     # same for the covariance, for each HMM chain
     def _get_covars(self):
@@ -1170,7 +1263,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         elif self.cvtype == 'diag':
             return [np.diag(cov) for cov in self._covars]
         elif self.cvtype == 'tied':
-            return [self._covars] * self._n_states
+            return [self._covars] * self._n_components_per_chain
         elif self.cvtype == 'spherical':
             return [np.eye(self.n_features) * f for f in self._covars]
     
@@ -1198,13 +1291,13 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         L = linalg.cholesky(self._covars[0], lower=True)
         for n in range(self._n_chains):
             cv_sol = linalg.solve_triangular(L, self._means[n].T, lower=True).T
-            deltas = np.sum(cv_sol ** 2, axis=1) # shape=(_n_states[n])
+            deltas = np.sum(cv_sol ** 2, axis=1) # shape=(_n_components_per_chain[n])
             obs_sol = linalg.solve_triangular(L,
                                               (obs - obsHat + \
                                                sigHatPerChain[n]).T,
                                               lower=True)
             frameVarParams[n] = np.dot(obs_sol.T, cv_sol.T) - \
-                                0.5 * deltas # shape=(nframes, _n_states[n])
+                                0.5 * deltas # shape=(nframes, _n_components_per_chain[n])
         
         return frameVarParams
     
@@ -1222,7 +1315,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         L = linalg.cholesky(self.covars[0], lower=True)
         
         cv_sol = linalg.solve_triangular(L, self._means[n].T, lower=True).T
-        deltas = np.sum(cv_sol ** 2, axis=1) # shape=(_n_states[n])
+        deltas = np.sum(cv_sol ** 2, axis=1) # shape=(_n_components_per_chain[n])
         obsHatChain = obsHat - sigHatPerChain[n]
         if hasattr(self, 'noiseLevel'):
             obsHatChain = np.maximum(obsHatChain, self.noiseLevel)
@@ -1231,7 +1324,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
                                           lower=True)
         
         return np.dot(obs_sol.T, cv_sol.T) - \
-                         0.5 * deltas # shape=(nframes, _n_states[n])
+                         0.5 * deltas # shape=(nframes, _n_components_per_chain[n])
     
     def _compute_log_likelihood(self, obs):
         # return lmvnpdf(obs, self._means, self._covars, self._cvtype)
@@ -1265,10 +1358,10 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
 
         if 'm' in params or 'c' in params:
             U,s,V = linalg.svd(stats['cor'])
-            Si = np.zeros([self._n_states_all,
-                           self._n_states_all])
+            Si = np.zeros([self._n_components_per_chain_all,
+                           self._n_components_per_chain_all])
             
-            for n in range(self._n_states_all):
+            for n in range(self._n_components_per_chain_all):
                 if s[n] >= (s.size * linalg.norm(s) * 0.001):
                     Si[n,n] = 1./s[n]
             
@@ -1292,8 +1385,8 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
             ## print newMean
             ## print newMean #DEBUG
             for n in range(self._n_chains):
-                n0 = np.sum(self.n_states[:n])
-                n1 = n0 + self.n_states[n]
+                n0 = np.sum(self.n_components_per_chain[:n])
+                n1 = n0 + self.n_components_per_chain[n]
                 self._means[n] = newMean[n0:n1]
         
         ## print self.means
@@ -1373,8 +1466,8 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         posteriors = {}
         logPost = {}
         for n in range(self.n_chains):
-            n0 = np.sum(self.n_states[:n])
-            n1 = n0 + self.n_states[n]
+            n0 = np.sum(self.n_components_per_chain[:n])
+            n1 = n0 + self.n_components_per_chain[n]
             if self.withNoiseF0 or self.withFlatFilter:
                 #do not take last element, which is noise
                 h[:, n1-1] = 0
@@ -1427,8 +1520,8 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         logPost = {}
         
         for n in range(self._n_chains): 
-            n0 = np.sum(self.n_states[:n])
-            n1 = n0 + self.n_states[n]
+            n0 = np.sum(self.n_components_per_chain[:n])
+            n1 = n0 + self.n_components_per_chain[n]
             posteriors[n] = normalize(amplitudes[:,n0:n1], axis=1)
             logPost[n] = np.log(posteriors[n])
         
