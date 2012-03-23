@@ -1053,7 +1053,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
     
     """
     
-    def __init__(self, cvtype='full',
+    def __init__(self, covariance_type='tied',
                  means_prior=None, means_weight=0,
                  covars_prior=1e-2, covars_weight=1,
                  n_components_per_chain=[2,2],
@@ -1061,7 +1061,9 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
                  transmat_per_chain=None,
                  startprob_prior=None,
                  transmat_prior=None,
-                 HMM=None):
+                 HMM=None,
+                 estimation_method='variational',
+                 algorithm='viterbi'):
         """
         """
         super(GaussianFHMM, self).__init__(n_components_per_chain=\
@@ -1071,7 +1073,9 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
                                            transmat_per_chain=\
                                            transmat_per_chain,
                                            startprob_prior=startprob_prior,
-                                           transmat_prior=transmat_prior)
+                                           transmat_prior=transmat_prior,
+                                           estimation_method=estimation_method,
+                                           algorithm=algorithm)
         
         if startprob_per_chain is None or \
                len(startprob_per_chain)!=self._n_chains:
@@ -1098,7 +1102,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         for n in range(self._n_chains):
             self.HMM[n] = GaussianHMM(n_components=\
                                       n_components_per_chain[n],
-                                      covariance_type=cvtype,
+                                      covariance_type=covariance_type,
                                       startprob=startprob_per_chain[n],
                                       transmat=transmat_per_chain[n],
                                       startprob_prior=startprob_prior[n],
@@ -1108,9 +1112,15 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
                                       covars_prior=covars_prior,
                                       covars_weight=covars_weight)
         
-        self._cvtype = cvtype
-        if not cvtype in ['spherical', 'tied', 'diag', 'full']:
+        self._cvtype = covariance_type
+        if not self._cvtype in ['spherical', 'tied', 'diag', 'full']:
             raise ValueError('bad cvtype')
+        if self._cvtype is not 'tied' and \
+               self._estimation_method is 'variational':
+            warnings.warn(
+                "Variational estimation method only suitable for tied\n"+
+                "covariance matrix. Setting cvtype to \"tied\".")
+            self._cvtype='tied'
         
         self.means_prior = means_prior
         self.means_weight = means_weight
@@ -1144,13 +1154,14 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         
         nframes = obs.shape[0]
         
-        logprob, state_sequences, posteriors = super(GaussianFHMM, self).decode_var(\
-                                                  obs=obs,
-                                                  n_innerLoop=n_innerLoop,
-                                                  verbose=verbose,
-                                                  debug=debug,
-                                                  n_repeatPerChain=n_repeatPerChain,
-                                                  **kwargs)
+        logprob, state_sequences, posteriors = \
+            super(GaussianFHMM, self).decode_var(obs=obs,
+                                                 n_innerLoop=n_innerLoop,
+                                                 verbose=verbose,
+                                                 debug=debug,
+                                                 n_repeatPerChain=\
+                                                 n_repeatPerChain,
+                                                 **kwargs)
         
         # compute outputmeans :
         outputMean = np.zeros([nframes,self.n_features])
@@ -1158,8 +1169,22 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
             outputMean += self.means[n][state_sequences[n]]
         
         return outputMean, state_sequences, posteriors
+
+    #def _init(self, obs, params='stmc', estimation_method="variational"):
+    #    """initialize parameters
+    #    If estimation method is variational, then necessary to call specific 
+    #    """
+    #    self._set_estimation_method(estimation_method=estimation_method)
+    #    init_methods = {
+    #        'full': super(GaussianFHMM,self)._init,
+    #        'variational': self._init_var}
+    #    return init_methods[self._estimation_method](obs, params=params)
     
+    # 20120323 JLD commented, to be removed?
+    #    EDIT: no, keep it, because with variational approximation, different
+    #    definition of means and covars
     def _init(self, obs, params='stmc'):
+        # this calls the _BaseFactHMM._init method
         super(GaussianFHMM, self)._init(obs, params=params)
         
         if (hasattr(self, 'n_features')
@@ -1175,19 +1200,34 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
             cv = np.cov(np.concatenate(obs),rowvar=0)
             if not cv.shape:
                 cv.shape = (1, 1)
-            self._covars = distribute_covar_matrix_to_match_covariance_type(
-                cv, self._cvtype, 1)
+            self.covars_ = distribute_covar_matrix_to_match_covariance_type(
+                cv, self._cvtype, self._n_components)
         
         if 'm' in params:
             self._means = {}
             for n in range(self._n_chains):
                 # TODO: if cvtype not full, then probably issue here!
-                self._means[n] = np.dot(np.random.randn(self._n_components_per_chain[n],
-                                                        self.n_features), \
-                                   np.double(linalg.sqrtm(self.covars[0])))/\
-                                     self._n_chains + \
-                                 np.concatenate(obs).mean(axis=0) / \
-                                     self._n_chains
+                self._means[n] = \
+                    np.dot(np.random.randn(self._n_components_per_chain[n],
+                                           self.n_features), \
+                           np.double(linalg.sqrtm(self.covars_[0])))/\
+                           self._n_chains + \
+                           np.concatenate(obs).mean(axis=0) / \
+                           self._n_chains
+    
+    def _set_estimation_method(self, estimation_method):
+        super(GaussianFHMM,self)._set_estimation_method(estimation_method=\
+                                                        estimation_method)
+        if self._cvtype is not 'tied' and \
+               self.estimation_method is 'variational':
+            warnings.warn(
+                "Variational estimation method only suitable for tied\n"+
+                "covariance matrix. Setting cvtype to \"tied\".")
+            self._cvtype='tied'
+
+    @property
+    def _covariance_type(self):
+        return self._cvtype
     
     @property
     def cvtype(self):
@@ -1220,16 +1260,17 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         return means
     
     # same for the covariances:
-    def _get__covars_(self):
-        """Because the _covars_, normally the internal value, has to
-        be created from the _covars_ of each individual HMMs
-        """
-        return self._covars
-    
-    def _set__covars_(self, covars):
-        pass
-    
-    _covars_ = property(_get__covars_, _set__covars_)
+    # 20120323 JLD no need for this if cvtyp eis tied, even for variational method
+    #def _get__covars_(self):
+    #    """Because the _covars_, normally the internal value, has to
+    #    be created from the _covars_ of each individual HMMs
+    #    """
+    #    return self._covars
+    #
+    #def _set__covars_(self, covars):
+    #    self._covars = covars
+    #
+    #_covars_ = property(_get__covars_, _set__covars_)
 
     # means as list of means for each HMM chain:
     def _get_means(self):
@@ -1259,20 +1300,20 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
     def _get_covars(self):
         """Return covars as a full matrix."""
         if self.cvtype == 'full':
-            return self._covars
+            return self._covars_
         elif self.cvtype == 'diag':
-            return [np.diag(cov) for cov in self._covars]
+            return [np.diag(cov) for cov in self._covars_]
         elif self.cvtype == 'tied':
-            return [self._covars] * self._n_components_per_chain
+            return [self._covars_] * self._n_components
         elif self.cvtype == 'spherical':
-            return [np.eye(self.n_features) * f for f in self._covars]
+            return [np.eye(self.n_features) * f for f in self._covars_]
     
     def _set_covars(self, covars):
         """[Gha97] : covar matrix unique for all possible states"""
         covars = np.asanyarray(covars)
         # [Gha97] model with only one covar matrix for observation likelihood:
         _validate_covars(covars, self._cvtype, 1, self.n_features)
-        self._covars = covars.copy()
+        self._covars_ = covars.copy()
     
     covars = property(_get_covars, _set_covars)
     
@@ -1287,8 +1328,8 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         frameVarParams={}
         # actually frameLogVarParams !
         
-        ##print self._covars[0]#DEBUG
-        L = linalg.cholesky(self._covars[0], lower=True)
+        # print self._covars_#DEBUG
+        L = linalg.cholesky(self._covars_, lower=True)
         for n in range(self._n_chains):
             cv_sol = linalg.solve_triangular(L, self._means[n].T, lower=True).T
             deltas = np.sum(cv_sol ** 2, axis=1) # shape=(_n_components_per_chain[n])
@@ -1312,7 +1353,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         ##print self._covars[0]#DEBUG
         n = chain
         # the following is the same for all HM chains: should factorize
-        L = linalg.cholesky(self.covars[0], lower=True)
+        L = linalg.cholesky(self._covars_, lower=True)
         
         cv_sol = linalg.solve_triangular(L, self._means[n].T, lower=True).T
         deltas = np.sum(cv_sol ** 2, axis=1) # shape=(_n_components_per_chain[n])
@@ -1341,7 +1382,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         nframes, nfeats = X.shape
         if nfeats!=self.n_features:
             raise ValueError("number of features should be n_features")
-        L = linalg.cholesky(self._covars[0])
+        L = linalg.cholesky(self._covars_)
         cv_sol = linalg.solve_triangular(L, X.T, lower=True).T
         
         return np.sum(cv_sol ** 2, axis=1)
@@ -1355,7 +1396,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         
         # compute SVD instead of inverse of stats['cor'] <-> Eta
         stats['cor'] = 0.5*(stats['cor'].T+stats['cor'])
-
+        
         if 'm' in params or 'c' in params:
             U,s,V = linalg.svd(stats['cor'])
             Si = np.zeros([self._n_components_per_chain_all,
@@ -1395,7 +1436,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         if 'c' in params:
             newCov = stats['obsobs'] / stats['ntotobs'] - \
                      np.dot(GammaX.T, newMean) / stats['ntotobs']
-            self._covars = [0.5 * (newCov + newCov.T)]
+            self._covars_ = 0.5 * (newCov + newCov.T)
         ## print newCov #DEBUG
         # should check if covars is still valid (check the det)
         

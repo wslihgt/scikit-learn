@@ -265,7 +265,9 @@ class GaussianHMMParams(object):
         transmat_per_chain[n] /= \
             np.tile(transmat_per_chain[n].sum(axis=1)[:, np.newaxis],
                     (1, n_components_per_chain[n]))
-    means_ = prng.randint(-20, 20, (n_components, n_features))
+    
+    means_ = [prng.randint(-20, 20, (n_components_per_chain[n], n_features))\
+              for n in range(n_chains)]
     covars_ = {'spherical': (1.0 + 2 * np.dot(prng.rand(n_components, 1),
                                         np.ones((1, n_features)))) ** 2,
               'tied': (make_spd_matrix(n_features, random_state=0)

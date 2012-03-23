@@ -25,17 +25,7 @@ import scipy.io
 struc = scipy.io.loadmat('X.mat')
 X = struc['X']
 
-class SeedRandomNumberGeneratorTestCase(TestCase):
-    seed = 9
-    def __init__(self, *args, **kwargs):
-        self.setUp()
-        TestCase.__init__(self, *args, **kwargs)
-
-    def setUp(self):
-        self.prng = np.random.RandomState(self.seed)
-
-
-fghmm = fhmm.GaussianFHMM(n_states=[2,2])
+fghmm = fhmm.GaussianFHMM(n_components_per_chain=[2,2])
 
 ## fghmm.fit_var([X, X[100:], X[50:], X[::-1]], n_iter=30, n_innerLoop=20,
 ##               verbose=True, params='mc')
