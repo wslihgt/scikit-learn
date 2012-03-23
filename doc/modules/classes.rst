@@ -22,12 +22,14 @@ uses.
 
 **User guide:** See the :ref:`clustering` section for further details.
 
+Classes
+-------
 .. currentmodule:: sklearn
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
-    
+
    cluster.AffinityPropagation
    cluster.DBSCAN
    cluster.KMeans
@@ -36,11 +38,19 @@ uses.
    cluster.SpectralClustering
    cluster.Ward
 
+Functions
+---------
 .. autosummary::
    :toctree: generated/
    :template: function.rst
 
    cluster.estimate_bandwidth
+   cluster.k_means
+   cluster.ward_tree
+   cluster.affinity_propagation
+   cluster.dbscan
+   cluster.mean_shift
+   cluster.spectral_clustering
 
 .. _covariance_ref:
 
@@ -240,6 +250,8 @@ Samples generator
    ensemble.RandomForestRegressor
    ensemble.ExtraTreesClassifier
    ensemble.ExtraTreesRegressor
+   ensemble.GradientBoostingClassifier
+   ensemble.GradientBoostingRegressor
 
 .. autosummary::
    :toctree: generated/
