@@ -1,22 +1,22 @@
-"""
-Factorial Hidden Markov Model
-
-After
-[Gha97] Z. Ghahramani and M. Jordan,
-Factorial Hidden Markov Models
-Machine Learning 29, 245-273 (1997)
-
-Matlab code at:
-http://mlg.eng.cam.ac.uk/zoubin/software/fhmm.tar.gz
-
-A few lines coming from scikits.learn.hmm.py
-
-"""
 # Factorial Hidden Markov Models
 #
 # Author: Jean-Louis Durrieu <jean-louis@durrieu.ch>
 # 2012
 
+"""
+The :mod:`sklearn.fhmm` implements a framework to work with
+Factorial Hidden Markov Models
+
+At the moment, implements the structured variational approximation of:
+[Gha97] Z. Ghahramani and M. Jordan,
+Factorial Hidden Markov Models
+Machine Learning 29, 245-273 (1997)
+
+Based on the MATLAB code available at:
+http://mlg.eng.cam.ac.uk/zoubin/software/fhmm.tar.gz
+and heavily depends on :mod:`sklearn.hmm`
+
+"""
 
 import string
 import os 
@@ -44,27 +44,6 @@ if sklearn.__version__.split('.')[1] in ('9','10','8'): #sklearn
     from .utils.extmath import logsum
 else:
     from sklearn.utils.extmath import logsumexp as logsum
-    ##try:
-    ##    from ._hmmc import _logsum as logsum
-    ##except ImportError:
-    ##    raise ImportError("Problem loading logsum from sklearn._hmmc module")
-        
-
-# replace inline by cython, when possible. Here: use current 0.11-dev
-# implementation of hmm, in cython.
-### home brew forward backward, with inline:
-##from scipy.weave import inline
-##fwdbwd_filename = 'computeLogDensity_FB_Viterbi.c'
-##fwdbwd_file = open(fwdbwd_filename,'r')
-##fwdbwd_supportcode = fwdbwd_file.read()
-##fwdbwd_file.close()
-
-# for displaying "debugging" information
-import matplotlib.pyplot as plt
-plt.ion()
-plt.rcParams['image.aspect'] = 'auto'
-plt.rcParams['image.origin'] = 'lower'
-plt.rcParams['image.interpolation'] = 'nearest'
 
 # from scikits.learn.mixture, but without checking the min value:
 def normalize(A, axis=None):
@@ -406,13 +385,6 @@ class _BaseFactHMM(_BaseHMM):
                                                        method=postInitMeth,
                                                        debug=debug,
                                                        verbose=verbose)
-        if debug:
-            plt.figure(200)
-            plt.clf()
-            plt.imshow(np.concatenate(logPost.values(), axis=1).T)
-            plt.colorbar()
-            plt.title('initial log posteriors')
-            plt.draw()
         
         for inn in range(n_innerLoop):
             if verbose:
@@ -444,33 +416,7 @@ class _BaseFactHMM(_BaseHMM):
                     gamma = fwdlattice + bwdlattice
                     logPost[n] = (gamma.T - logsum(gamma, axis=1)).T
                     posteriors[n] = np.exp(logPost[n])
-                    
-                    if debug:
-                        plt.figure(1)
-                        plt.clf()
-                        plt.imshow(frameLogVarParams-\
-                                   np.vstack(logsum(frameLogVarParams,axis=1)))
-                        plt.colorbar()
-                        plt.title("frameLogVarParams "+str(n))
-                        plt.draw()
-                        plt.figure(2)
-                        plt.clf()
-                        plt.subplot(211)
-                        plt.imshow(posteriors[n].T)
-                        plt.colorbar()
-                        plt.title("posterior "+str(n))
-                        plt.subplot(212)
-                        plt.imshow(bwdlattice.T)
-                        plt.colorbar()
-                        plt.title("bwdlattice "+str(n))
-                        plt.draw()
-                        
-                        # print 'n',n,'frameLogVarParams',\
-                        #       np.any(np.isnan(frameLogVarParams)),\
-                        #       'fwd',np.any(np.isinf(fwdlattice[n])),\
-                        #       'bwd',np.any(np.isinf(bwdlattice[n]))
-                        ## raw_input("press \'any\' key... Doh!")
-                        
+            
             # stopping condition (from [Gha97] and Matlab code)
             # measuring relative difference between previous and current
             # posterior probabilities.
@@ -596,22 +542,6 @@ class _BaseFactHMM(_BaseHMM):
                             self._do_backward_pass_var_chain(frameLogVarParams,
                                                              chain=n)
                         
-                        if debug:
-                            plt.figure(1)
-                            plt.clf()
-                            plt.imshow(frameLogVarParams)
-                            plt.title("frameLogVarParams")
-                            plt.draw()
-                            plt.figure(2)
-                            plt.clf()
-                            plt.subplot(211)
-                            plt.imshow(fwdlattice[n])
-                            plt.title("fwdlattice")
-                            plt.subplot(212)
-                            plt.imshow(bwdlattice[n])
-                            plt.title("bwdlattice")
-                            plt.draw()
-                        
                         gamma = fwdlattice[n] + bwdlattice[n]
                         logPost[n] = (gamma.T - logsum(gamma, axis=1)).T
                         posteriors[n] = np.exp(logPost[n])
@@ -681,7 +611,7 @@ class _BaseFactHMM(_BaseHMM):
         self.n_features = obs[0].shape[1]
         
         for n in range(self._n_chains):
-            self.HMM[n]._init(obs, params)
+            self.HMM[n]._init(obs, params=params)
 
         self.startprob = None
         self.transmat = None
@@ -1204,16 +1134,16 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
                 cv, self._cvtype, self._n_components)
         
         if 'm' in params:
-            self._means = {}
+            self._means = []
             for n in range(self._n_chains):
                 # TODO: if cvtype not full, then probably issue here!
-                self._means[n] = \
+                self._means.append(\
                     np.dot(np.random.randn(self._n_components_per_chain[n],
                                            self.n_features), \
                            np.double(linalg.sqrtm(self.covars_[0])))/\
                            self._n_chains + \
                            np.concatenate(obs).mean(axis=0) / \
-                           self._n_chains
+                           self._n_chains)
     
     def _set_estimation_method(self, estimation_method):
         super(GaussianFHMM,self)._set_estimation_method(estimation_method=\
@@ -1429,6 +1359,8 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
                 n0 = np.sum(self.n_components_per_chain[:n])
                 n1 = n0 + self.n_components_per_chain[n]
                 self._means[n] = newMean[n0:n1]
+        else:
+            newMean = np.concatenate(self.means_per_chain, axis=0)
         
         ## print self.means
         
@@ -1548,14 +1480,6 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
                          means.T)
             amplitudes = amplitudes * num / np.maximum(denom, nmfEps)
             amplitudes = np.maximum(amplitudes, nmfEps)
-            if debug:
-                plt.figure(200)
-                plt.clf()
-                plt.imshow(np.log(amplitudes), origin='lower',
-                           interpolation='nearest')
-                plt.colorbar()
-                plt.draw()
-                
         
         posteriors = {}
         logPost = {}
