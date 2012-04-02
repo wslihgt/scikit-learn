@@ -1,3 +1,10 @@
+2012-03-31  Jean-Louis Durrieu  <jean-louis.durrieu@epfl.ch>
+
+	* tests/test_fhmm.py (test_ghahramani_example_2chains): 
+	for now, it seems the ghahramani tests are assessed as correct
+	only for a rather high number of iterations of the variational
+	algorithm (as of today: 14 tests, in 11.34s - so a bit long)
+
 2012-03-23  Jean-Louis Durrieu  <jean-louis.durrieu@epfl.ch>
 
 	* fhmm.py (GaussianFHMM._init): 

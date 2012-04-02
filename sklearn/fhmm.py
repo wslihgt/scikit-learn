@@ -1106,7 +1106,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
     #    """
     #    self._set_estimation_method(estimation_method=estimation_method)
     #    init_methods = {
-    #        'full': super(GaussianFHMM,self)._init,
+    #        'full': super(GaussianFHMM,self)._init, #
     #        'variational': self._init_var}
     #    return init_methods[self._estimation_method](obs, params=params)
     
@@ -1273,7 +1273,18 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         return frameVarParams
     
     def _compute_var_params_chain(self, obs, posteriors, chain, debug=False):
+        """_compute_var_params_chain(self, obs, posteriors, chain, debug=False)
         
+        This method computes the estimation of the variational parameters,
+        for use in the Markov chain `chain`, before re-estimating the posterior
+        probabilities.
+        
+        OUTPUT
+        ------
+        framelogvarparams: ndarray, shape ()
+            the 
+        
+        """
         obsHat = np.zeros_like(obs)
         sigHatPerChain = {}
         for n in range(self._n_chains):
@@ -1282,7 +1293,7 @@ class GaussianFHMM(_BaseFactHMM, GaussianHMM): # should subclass also GaussianHM
         
         ##print self._covars[0]#DEBUG
         n = chain
-        # the following is the same for all HM chains: should factorize
+        # the following is the same for all Markov chains: should factorize
         L = linalg.cholesky(self._covars_, lower=True)
         
         cv_sol = linalg.solve_triangular(L, self._means[n].T, lower=True).T

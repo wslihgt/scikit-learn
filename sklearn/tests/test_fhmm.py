@@ -399,11 +399,11 @@ def test_ghahramani_example():
                    np.array([[-2], [2]]),
                    np.array([[-0.5], [0.5]])]
     
-    fghmm.fit_var([X], n_iter=100, n_innerLoop=30,
+    fghmm.fit_var([X], n_iter=100, n_innerLoop=10,
                   verbose=True, params='stmc',
                   init_params='stc')
     
-    mpost, states, posteriors = fghmm.decode_var(X, n_innerLoop=20,
+    mpost, states, posteriors = fghmm.decode_var(X, n_innerLoop=2,
                                                  verbose=True,
                                                  debug=True)
     
@@ -461,11 +461,11 @@ def test_ghahramani_example_2chains():
     
     fghmm = fhmm.GaussianFHMM(n_components_per_chain=[2,2])
     
-    fghmm.fit([X], n_iter=100, n_innerLoop=30,
+    fghmm.fit([X], n_iter=100, n_innerLoop=10,
               verbose=True, params='stmc',
               init_params='stmc')
     
-    mpost, states, posteriors = fghmm.decode_var(X, n_innerLoop=20,
+    mpost, states, posteriors = fghmm.decode_var(X, n_innerLoop=2,
                                                  verbose=True,
                                                  debug=True)
     
