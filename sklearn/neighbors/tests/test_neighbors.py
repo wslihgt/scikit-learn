@@ -1,4 +1,7 @@
 import warnings
+
+from nose.tools import assert_equal
+
 import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 from numpy.testing import assert_raises
@@ -37,11 +40,6 @@ def test_warn_on_equidistant(n_samples=100, n_features=3, k=3):
 
     y = np.zeros(X.shape[0])
 
-    # change warnings.warn to catch the message
-    warn_queue = []
-    warnings_warn = warnings.warn
-    warnings.warn = lambda msg: warn_queue.append(msg)
-
     expected_message = ("kneighbors: neighbor k+1 and neighbor k "
                         "have the same distance: results will be "
                         "dependent on data order.")
@@ -52,16 +50,14 @@ def test_warn_on_equidistant(n_samples=100, n_features=3, k=3):
 
     for algorithm in algorithms:
         for estimator in estimators:
-            neigh = estimator(n_neighbors=k, algorithm=algorithm)
-            neigh.fit(X, y)
-            neigh.predict(q)
+            with warnings.catch_warnings(record=True) as warn_queue:
+                neigh = estimator(n_neighbors=k, algorithm=algorithm)
+                neigh.fit(X, y)
+                neigh.predict(q)
+            print algorithm, estimator, len(warn_queue)
 
-            assert len(warn_queue) == 1
-            assert warn_queue[0] == expected_message
-            warn_queue = []
-
-    # restore default behavior
-    warnings.warn = warnings_warn
+            assert_equal(len(warn_queue), 1)
+            assert_equal(str(warn_queue[0].message), expected_message)
 
 
 def test_unsupervised_kneighbors(n_samples=20, n_features=5,
@@ -308,7 +304,7 @@ def test_neighbors_iris():
 
     for algorithm in ALGORITHMS:
         clf = neighbors.KNeighborsClassifier(n_neighbors=1,
-                                             algorithm=algorithm)
+                algorithm=algorithm, warn_on_equidistant=False)
         clf.fit(iris.data, iris.target)
         assert_array_equal(clf.predict(iris.data), iris.target)
 
@@ -316,8 +312,8 @@ def test_neighbors_iris():
         clf.fit(iris.data, iris.target)
         assert np.mean(clf.predict(iris.data) == iris.target) > 0.95
 
-        rgs = neighbors.KNeighborsRegressor(n_neighbors=5,
-                                            algorithm=algorithm)
+        rgs = neighbors.KNeighborsRegressor(n_neighbors=5, algorithm=algorithm,
+                warn_on_equidistant=False)
         rgs.fit(iris.data, iris.target)
         assert np.mean(
             rgs.predict(iris.data).round() == iris.target) > 0.95

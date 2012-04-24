@@ -82,12 +82,15 @@ Changelog
       ``shrink_threshold`` parameter, which implements shrunken centroid
       classification, by `Robert Layton`_.
 
+   - Classes in :ref:`neighbors` now support arbitrary Minkowski metric for 
+     nearest neighbors searches. The metric can be specified by argument ``p``.
+
 API changes summary
 -------------------
 
    - :class:`covariance.EllipticEnvelop` is now deprecated - Please use :class:`covariance.EllipticEnvelope`
      instead.
-
+  
    - `NeighborsClassifier` and `NeighborsRegressor` are gone in the module
      :ref:`neighbors`. Use the classes :class:`KNeighborsClassifier`,
      :class:`RadiusNeighborsClassifier`, :class:`KNeighborsRegressor`
@@ -95,7 +98,11 @@ API changes summary
 
    - Sparse classes in the :ref:`sgd` module are now deprecated.
 
-   - methods `rvs` and `decode` in :class:`GMM` module are now deprecated.
+   - In :class:`mixture.GMM`, :class:`mixture.DPGMM` and :class:`mixture.VBGMM`,
+     parameters must be passed to an object when initialising it and not through
+     ``fit``. Now ``fit`` will only accept the data as an input parameter.
+
+    - methods `rvs` and `decode` in :class:`GMM` module are now deprecated.
      `sample` and `score` or `predict` should be used instead.
 
    - attribute `_scores` and `_pvalues` in univariate feature selection
@@ -158,6 +165,20 @@ API changes summary
 
    - The SVMlight format loader now supports files with both zero-based and
      one-based column indices, since both occur "in the wild".
+
+   - Arguments in class :class:`ShuffleSplit` are now consistent with
+     :class:`StratifiedShuffleSplit`. Arguments ``test_fraction`` and
+     ``train_fraction`` are deprecated and renamed to ``test_size`` and
+     ``train_size`` and can accept both ``float`` and ``int``.
+
+   - Arguments in class :class:`Bootstrap` are now consistent with
+     :class:`StratifiedShuffleSplit`. Arguments ``n_test`` and
+     ``n_train`` are deprecated and renamed to ``test_size`` and
+     ``train_size`` and can accept both ``float`` and ``int``.
+
+   - Argument ``p`` added to classes in :ref:`neighbors` to specify an 
+     arbitrary Minkowski metric for nearest neighbors searches.
+
 
 .. _changes_0_10:
 
