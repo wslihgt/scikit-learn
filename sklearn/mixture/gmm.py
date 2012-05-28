@@ -154,7 +154,7 @@ class GMM(BaseEstimator):
     Attributes
     ----------
     `weights_` : array, shape (`n_components`,)
-        Mixing weights for each mixture component.
+        This attribute stores the mixing weights for each mixture component.
 
     `means_` : array, shape (`n_components`, `n_features`)
         Mean parameters for each mixture component.
@@ -207,8 +207,8 @@ class GMM(BaseEstimator):
     >>> np.round(g.covars_, 2) #doctest: +SKIP
     array([[[ 1.02]],
            [[ 0.96]]])
-    >>> g.predict([[0], [2], [9], [10]])
-    array([1, 1, 0, 0])
+    >>> g.predict([[0], [2], [9], [10]]) #doctest: +ELLIPSIS
+    array([1, 1, 0, 0]...)
     >>> np.round(g.score([[0], [2], [9], [10]]), 2)
     array([-2.19, -4.58, -1.75, -1.21])
     >>> # Refit the model on new data (initial parameters remain the
@@ -508,7 +508,8 @@ class GMM(BaseEstimator):
                     break
 
                 # Maximization step
-                self._do_mstep(X, responsibilities, self.params, self.min_covar)
+                self._do_mstep(X, responsibilities, self.params,
+                        self.min_covar)
 
             # if the results are better, keep it
             if self.n_iter:

@@ -9,16 +9,10 @@ from sklearn import manifold
 from sklearn import neighbors
 from sklearn import pipeline
 from sklearn import preprocessing
+from sklearn.utils.testing import assert_less
 
 eigen_solvers = ['auto', 'dense', 'arpack']
 path_methods = ['auto', 'FW', 'D']
-
-
-def assert_lower(a, b, details=None):
-    message = "%r is not lower than %r" % (a, b)
-    if details is not None:
-        message += ": " + details
-    assert a < b, message
 
 
 def test_isomap_simple_grid():
@@ -27,7 +21,7 @@ def test_isomap_simple_grid():
     Npts = N_per_side ** 2
     n_neighbors = Npts - 1
 
-    # grid of equidistant points in 2D, out_dim = n_dim
+    # grid of equidistant points in 2D, n_components = n_dim
     X = np.array(list(product(range(N_per_side), repeat=2)))
 
     # distances from each point to all others
@@ -36,7 +30,7 @@ def test_isomap_simple_grid():
 
     for eigen_solver in eigen_solvers:
         for path_method in path_methods:
-            clf = manifold.Isomap(n_neighbors=n_neighbors, out_dim=2,
+            clf = manifold.Isomap(n_neighbors=n_neighbors, n_components=2,
                                   eigen_solver=eigen_solver,
                                   path_method=path_method)
             clf.fit(X)
@@ -53,7 +47,7 @@ def test_isomap_reconstruction_error():
     Npts = N_per_side ** 2
     n_neighbors = Npts - 1
 
-    # grid of equidistant points in 2D, out_dim = n_dim
+    # grid of equidistant points in 2D, n_components = n_dim
     X = np.array(list(product(range(N_per_side), repeat=2)))
 
     # add noise in a third dimension
@@ -70,7 +64,7 @@ def test_isomap_reconstruction_error():
 
     for eigen_solver in eigen_solvers:
         for path_method in path_methods:
-            clf = manifold.Isomap(n_neighbors=n_neighbors, out_dim=2,
+            clf = manifold.Isomap(n_neighbors=n_neighbors, n_components=2,
                                   eigen_solver=eigen_solver,
                                   path_method=path_method)
             clf.fit(X)
@@ -106,7 +100,7 @@ def test_transform():
     X_iso2 = iso.transform(X + noise)
 
     # Make sure the rms error on re-embedding is comparable to noise_scale
-    assert_true(np.sqrt(np.mean((X_iso - X_iso2) ** 2)) < 2 * noise_scale)
+    assert_less(np.sqrt(np.mean((X_iso - X_iso2) ** 2)), 2 * noise_scale)
 
 
 def test_pipeline():
@@ -118,7 +112,7 @@ def test_pipeline():
         [('isomap', manifold.Isomap()),
          ('clf', neighbors.KNeighborsClassifier())])
     clf.fit(X, y)
-    assert_lower(.9, clf.score(X, y))
+    assert_less(.9, clf.score(X, y))
 
 
 if __name__ == '__main__':

@@ -234,8 +234,9 @@ def k_means(X, k, init='k-means++', precompute_distances=True,
     tol = _tolerance(X, tol)
 
     # subtract of mean of x for more accurate distance computations
-    if not sp.issparse(X):
+    if not sp.issparse(X) or hasattr(init, '__array__'):
         X_mean = X.mean(axis=0)
+    if not sp.issparse(X):
         if copy_x:
             X = X.copy()
         X -= X_mean
@@ -247,7 +248,7 @@ def k_means(X, k, init='k-means++', precompute_distances=True,
             warnings.warn(
                 'Explicit initial center position passed: '
                 'performing only one init in the k-means instead of %d'
-                % n_init)
+                % n_init, RuntimeWarning, stacklevel=2)
             n_init = 1
 
     # precompute squared norms of data points
@@ -495,16 +496,20 @@ def _centers(X, labels, n_clusters, distances):
     centers = np.empty((n_clusters, n_features))
     far_from_centers = None
     reallocated_idx = 0
+    sparse_X = sp.issparse(X)
 
     for center_id in range(n_clusters):
         center_mask = labels == center_id
-        if sp.issparse(X):
+        if sparse_X:
             center_mask = np.arange(len(labels))[center_mask]
         if not np.any(center_mask):
             # Reassign empty cluster center to sample far from any cluster
             if far_from_centers is None:
                 far_from_centers = distances.argsort()[::-1]
-            centers[center_id] = X[far_from_centers[reallocated_idx]]
+            new_centers = X[far_from_centers[reallocated_idx]]
+            if sparse_X:
+                new_centers = new_centers.todense().ravel()
+            centers[center_id] = new_centers
             reallocated_idx += 1
         else:
             centers[center_id] = X[center_mask].mean(axis=0)
@@ -537,7 +542,9 @@ def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
 
     init_size : int, optional
         Number of samples to randomly sample for speeding up the
-        initialization (sometimes at the expense of accurracy).
+        initialization (sometimes at the expense of accurracy): the
+        only algorithm is initialized by running a batch KMeans on a
+        random subset of the data. This needs to be larger than k.
 
     Returns
     -------
@@ -548,8 +555,11 @@ def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
 
     if init_size is not None and init_size < n_samples:
         if init_size < k:
-            raise ValueError(
-                "init_size=%d should be larger than k=%d" % (init_size, k))
+            warnings.warn(
+                "init_size=%d should be larger than k=%d. "
+                "Setting it to 3*k" % (init_size, k),
+                RuntimeWarning, stacklevel=2)
+            init_size = 3 * k
         init_indices = random_state.random_integers(
                 0, n_samples - 1, init_size)
         X = X[init_indices]
@@ -707,7 +717,8 @@ class KMeans(BaseEstimator):
                                  n_features, expected_n_features))
         if not X.dtype.kind is 'f':
             warnings.warn("Got data type %s, converted to float "
-                    "to avoid overflows" % X.dtype)
+                    "to avoid overflows" % X.dtype,
+                    RuntimeWarning, stacklevel=2)
             X = X.astype(np.float)
 
         return X
@@ -969,8 +980,10 @@ class MiniBatchKMeans(KMeans):
         Size of the mini batches.
 
     init_size: int, optional, default: 3 * batch_size
-        Size of the random sample of the dataset passed to init method
-        when calling fit.
+        Number of samples to randomly sample for speeding up the
+        initialization (sometimes at the expense of accurracy): the
+        only algorithm is initialized by running a batch KMeans on a
+        random subset of the data. This needs to be larger than k.
 
     init : {'k-means++', 'random' or an ndarray}
         Method for initialization, defaults to 'k-means++':
@@ -1025,7 +1038,8 @@ class MiniBatchKMeans(KMeans):
         self.max_no_improvement = max_no_improvement
         if chunk_size is not None:
             warnings.warn(
-                "chunk_size is deprecated in 0.10, use batch_size instead")
+                "chunk_size is deprecated in 0.10, use batch_size instead",
+                PendingDeprecationWarning, stacklevel=2)
             batch_size = chunk_size
         self.batch_size = batch_size
         self.compute_labels = compute_labels
@@ -1106,7 +1120,7 @@ class MiniBatchKMeans(KMeans):
                 cluster_centers, counts, old_center_buffer, False,
                 distances=distances)
 
-            # Keep only the best cluster centers across independant inits on
+            # Keep only the best cluster centers across independent inits on
             # the common validation set
             _, inertia = _labels_inertia(X_valid, x_squared_norms_valid,
                                          cluster_centers)

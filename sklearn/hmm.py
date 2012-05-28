@@ -898,10 +898,11 @@ class MultinomialHMM(_BaseHMM):
 
     def _init(self, obs, params='ste'):
         super(MultinomialHMM, self)._init(obs, params=params)
+        self.random_state = check_random_state(self.random_state)
 
         if 'e' in params:
-            emissionprob = normalize(np.random.rand(self.n_components,
-                                                    self.n_symbols), 1)
+            emissionprob = normalize(self.random_state.rand(self.n_components,
+                self.n_symbols), 1)
             self.emissionprob_ = emissionprob
 
     def _initialize_sufficient_statistics(self):

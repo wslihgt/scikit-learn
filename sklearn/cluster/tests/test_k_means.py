@@ -11,6 +11,8 @@ from nose.tools import assert_almost_equal
 from nose.tools import assert_raises
 from nose.tools import assert_true
 
+from sklearn.utils.testing import assert_greater
+from sklearn.utils.testing import assert_less
 from sklearn.metrics.cluster import v_measure_score
 from sklearn.cluster import KMeans
 from sklearn.cluster import MiniBatchKMeans
@@ -41,7 +43,8 @@ def test_square_norms():
 
 
 def test_kmeans_dtype():
-    X = np.random.normal(size=(40, 2))
+    rnd = np.random.RandomState(0)
+    X = rnd.normal(size=(40, 2))
     X = (X * 10).astype(np.uint8)
     km = KMeans(n_init=1).fit(X)
     with warnings.catch_warnings(record=True) as w:
@@ -107,13 +110,13 @@ def test_minibatch_update_consistency():
     old_inertia, incremental_diff = _mini_batch_step(
         X_mb, x_mb_squared_norms, new_centers, counts,
         buffer, 1)
-    assert_true(old_inertia > 0.0)
+    assert_greater(old_inertia, 0.0)
 
     # compute the new inertia on the same batch to check that it decreased
     labels, new_inertia = _labels_inertia(
         X_mb, x_mb_squared_norms, new_centers)
-    assert_true(new_inertia > 0.0)
-    assert_true(new_inertia < old_inertia)
+    assert_greater(new_inertia, 0.0)
+    assert_less(new_inertia, old_inertia)
 
     # check that the incremental difference computation is matching the
     # final observed value
@@ -124,13 +127,13 @@ def test_minibatch_update_consistency():
     old_inertia_csr, incremental_diff_csr = _mini_batch_step(
         X_mb_csr, x_mb_squared_norms_csr, new_centers_csr, counts_csr,
         buffer_csr, 1)
-    assert_true(old_inertia_csr > 0.0)
+    assert_greater(old_inertia_csr, 0.0)
 
     # compute the new inertia on the same batch to check that it decreased
     labels_csr, new_inertia_csr = _labels_inertia(
         X_mb_csr, x_mb_squared_norms_csr, new_centers_csr)
-    assert_true(new_inertia_csr > 0.0)
-    assert_true(new_inertia_csr < old_inertia_csr)
+    assert_greater(new_inertia_csr, 0.0)
+    assert_less(new_inertia_csr, old_inertia_csr)
 
     # check that the incremental difference computation is matching the
     # final observed value
@@ -156,7 +159,7 @@ def _check_fitted_model(km):
 
     # check that the labels assignements are perfect (up to a permutation)
     assert_equal(v_measure_score(true_labels, labels), 1.0)
-    assert_true(km.inertia_ > 0.0)
+    assert_greater(km.inertia_, 0.0)
 
     # check error on dataset being too small
     assert_raises(ValueError, km.fit, [[0., 1.]])
@@ -165,6 +168,30 @@ def _check_fitted_model(km):
 def test_k_means_plus_plus_init():
     k_means = KMeans(init="k-means++", k=n_clusters, random_state=42).fit(X)
     _check_fitted_model(k_means)
+
+
+def test_k_means_new_centers():
+    # Explore the part of the code where a new center is reassigned
+    X = np.array([[0, 0, 1, 1],
+                  [0, 0, 0, 0],
+                  [0, 1, 0, 0],
+                  [0, 0, 0, 0],
+                  [0, 0, 0, 0],
+                  [0, 1, 0, 0]])
+    labels = [0, 1, 2, 1, 1, 2]
+    bad_centers = np.array([[ 0,  1,  0,  0],
+                            [.2,  0, .2, .2],
+                            [ 0,  0,  0,  0]])
+
+    km = KMeans(k=3, init=bad_centers, max_iter=10, random_state=1)
+    for this_X in (X, sp.coo_matrix(X)):
+        km.fit(this_X)
+        this_labels = km.labels_
+        # Reorder the labels so that the first instance is in cluster 0,
+        # the second in cluster 1, ...
+        this_labels = np.unique(this_labels,
+                                return_index=True)[1][this_labels]
+        np.testing.assert_array_equal(this_labels, labels)
 
 
 def _get_mac_os_version():
@@ -234,7 +261,12 @@ def test_mb_k_means_plus_plus_init_sparse_matrix():
 
 def test_minibatch_init_with_large_k():
     mb_k_means = MiniBatchKMeans(init='k-means++', init_size=10, k=20)
-    assert_raises(ValueError, mb_k_means.fit, X)
+    # Check that a warning is raised, as the number clusters is larger
+    # than the init_size
+    with warnings.catch_warnings(record=True) as warn_queue:
+        mb_k_means.fit(X)
+
+    assert_equal(len(warn_queue), 1)
 
 
 def test_minibatch_k_means_random_init_dense_array():
@@ -362,7 +394,7 @@ def test_predict():
 def test_score():
     s1 = KMeans(k=n_clusters, max_iter=1, random_state=42).fit(X).score(X)
     s2 = KMeans(k=n_clusters, max_iter=10, random_state=42).fit(X).score(X)
-    assert_true(s2 > s1)
+    assert_greater(s2, s1)
 
 
 def test_predict_minibatch_dense_input():
@@ -444,7 +476,7 @@ def test_transform():
         assert_equal(X_new[c, c], 0)
         for c2 in range(n_clusters):
             if c != c2:
-                assert_true(X_new[c, c2] > 0)
+                assert_greater(X_new[c, c2], 0)
 
 
 def test_n_init():

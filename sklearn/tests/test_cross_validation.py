@@ -7,6 +7,7 @@ from scipy.sparse import coo_matrix
 from nose.tools import assert_true, assert_equal
 from nose.tools import assert_raises
 
+from ..utils.testing import assert_greater, assert_less
 from ..base import BaseEstimator
 from ..datasets import make_regression
 from ..datasets import load_iris
@@ -195,7 +196,7 @@ def test_train_test_split():
 
 def test_cross_val_score_with_score_func_classification():
     iris = load_iris()
-    clf = SVC(kernel='linear', C=len(iris.data) * 4 // 5)
+    clf = SVC(kernel='linear')
 
     # Default score (should be the accuracy score)
     scores = cval.cross_val_score(clf, iris.data, iris.target, cv=5)
@@ -245,13 +246,13 @@ def test_permutation_score():
     X = iris.data
     X_sparse = coo_matrix(X)
     y = iris.target
-    svm = SVC(kernel='linear', C=len(X))
+    svm = SVC(kernel='linear')
     cv = cval.StratifiedKFold(y, 2)
 
     score, scores, pvalue = cval.permutation_test_score(
         svm, X, y, zero_one_score, cv)
 
-    assert_true(score > 0.9)
+    assert_greater(score, 0.9)
     np.testing.assert_almost_equal(pvalue, 0.0, 1)
 
     score_label, _, pvalue_label = cval.permutation_test_score(
@@ -261,7 +262,7 @@ def test_permutation_score():
     assert_true(pvalue_label == pvalue)
 
     # check that we obtain the same results with a sparse representation
-    svm_sparse = SparseSVC(kernel='linear', C=len(X))
+    svm_sparse = SparseSVC(kernel='linear')
     cv_sparse = cval.StratifiedKFold(y, 2, indices=True)
     score_label, _, pvalue_label = cval.permutation_test_score(
         svm_sparse, X_sparse, y, zero_one_score, cv_sparse,
@@ -276,8 +277,8 @@ def test_permutation_score():
     score, scores, pvalue = cval.permutation_test_score(svm, X, y,
             zero_one_score, cv)
 
-    assert_true(score < 0.5)
-    assert_true(pvalue > 0.4)
+    assert_less(score, 0.5)
+    assert_greater(pvalue, 0.4)
 
 
 def test_cross_val_generator_with_mask():
