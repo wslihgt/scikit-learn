@@ -63,6 +63,34 @@ def test_regression_toy():
     assert_almost_equal(clf.predict(T), true_result)
 
 
+def test_xor():
+    """Check on a XOR problem"""
+    y = np.zeros((10, 10))
+    y[:5, :5] = 1
+    y[5:, 5:] = 1
+
+    gridx, gridy = np.indices(y.shape)
+
+    X = np.vstack([gridx.ravel(), gridy.ravel()]).T
+    y = y.ravel()
+
+    clf = tree.DecisionTreeClassifier()
+    clf.fit(X, y)
+    assert_equal(clf.score(X, y), 1.0)
+
+    clf = tree.DecisionTreeClassifier(max_features=1)
+    clf.fit(X, y)
+    assert_equal(clf.score(X, y), 1.0)
+
+    clf = tree.ExtraTreeClassifier()
+    clf.fit(X, y)
+    assert_equal(clf.score(X, y), 1.0)
+
+    clf = tree.ExtraTreeClassifier(max_features=1)
+    clf.fit(X, y)
+    assert_equal(clf.score(X, y), 1.0)
+
+
 def test_graphviz_toy():
     """Check correctness of graphviz output on a toy dataset."""
     clf = tree.DecisionTreeClassifier(max_depth=3, min_samples_split=1)
@@ -114,10 +142,10 @@ def test_graphviz_toy():
 
 def test_iris():
     """Check consistency on dataset iris."""
-    for c in ('gini', \
+    for c in ('gini',
               'entropy'):
-        clf = tree.DecisionTreeClassifier(criterion=c)\
-              .fit(iris.data, iris.target)
+        clf = tree.DecisionTreeClassifier(criterion=c).fit(iris.data,
+                                                           iris.target)
 
         score = np.mean(clf.predict(iris.data) == iris.target)
         assert score > 0.9, "Failed with criterion " + c + \
@@ -125,8 +153,8 @@ def test_iris():
 
         clf = tree.DecisionTreeClassifier(criterion=c,
                                           max_features=2,
-                                          random_state=1)\
-              .fit(iris.data, iris.target)
+                                          random_state=1).fit(iris.data,
+                                                              iris.target)
 
         score = np.mean(clf.predict(iris.data) == iris.target)
         assert score > 0.5, "Failed with criterion " + c + \
@@ -136,8 +164,8 @@ def test_iris():
 def test_boston():
     """Check consistency on dataset boston house prices."""
     for c in ('mse',):
-        clf = tree.DecisionTreeRegressor(criterion=c)\
-              .fit(boston.data, boston.target)
+        clf = tree.DecisionTreeRegressor(criterion=c).fit(boston.data,
+                                                          boston.target)
 
         score = np.mean(np.power(clf.predict(boston.data) - boston.target, 2))
         assert score < 1, "Failed with criterion " + c + \
@@ -145,8 +173,8 @@ def test_boston():
 
         clf = tree.DecisionTreeRegressor(criterion=c,
                                          max_features=6,
-                                         random_state=1)\
-              .fit(boston.data, boston.target)
+                                         random_state=1).fit(boston.data,
+                                                             boston.target)
 
         #using fewer features reduces the learning ability of this tree,
         # but reduces training time.
@@ -158,7 +186,7 @@ def test_boston():
 def test_probability():
     """Predict probabilities using DecisionTreeClassifier."""
     clf = tree.DecisionTreeClassifier(max_depth=1, max_features=1,
-            random_state=42)
+                                      random_state=42)
     clf.fit(iris.data, iris.target)
 
     prob_predict = clf.predict_proba(iris.data)
@@ -180,13 +208,25 @@ def test_arrayrepr():
     clf.fit(X, y)
 
 
+def test_pure_set():
+    """Check when y is pure."""
+    X = [[-2, -1], [-1, -1], [-1, -2], [1, 1], [1, 2], [2, 1]]
+    y = [1, 1, 1, 1, 1, 1]
+
+    clf = tree.DecisionTreeClassifier().fit(X, y)
+    assert_array_equal(clf.predict(X), y)
+
+    clf = tree.DecisionTreeRegressor().fit(X, y)
+    assert_array_equal(clf.predict(X), y)
+
+
 def test_numerical_stability():
     """Check numerical stability."""
     old_settings = np.geterr()
     np.seterr(all="raise")
 
-    X = np.array(
-       [[152.08097839, 140.40744019, 129.75102234, 159.90493774],
+    X = np.array([
+        [152.08097839, 140.40744019, 129.75102234, 159.90493774],
         [142.50700378, 135.81935120, 117.82884979, 162.75781250],
         [127.28772736, 140.40744019, 129.75102234, 159.90493774],
         [132.37025452, 143.71923828, 138.35694885, 157.84558105],
@@ -199,7 +239,9 @@ def test_numerical_stability():
 
     dt = tree.DecisionTreeRegressor()
     dt.fit(X, y)
+    dt.fit(X, -y)
     dt.fit(-X, y)
+    dt.fit(-X, -y)
 
     np.seterr(**old_settings)
 
@@ -302,21 +344,29 @@ def test_error():
     clf.fit(X, y)
     assert_raises(ValueError, clf.predict, Xt)
 
+    # wrong length of sample mask
+    clf = tree.DecisionTreeClassifier()
+    sample_mask = np.array([1])
+    assert_raises(ValueError, clf.fit, X, y, sample_mask=sample_mask)
+
+    # wrong length of X_argsorted
+    clf = tree.DecisionTreeClassifier()
+    X_argsorted = np.array([1])
+    assert_raises(ValueError, clf.fit, X, y, X_argsorted=X_argsorted)
+
 
 def test_min_samples_leaf():
     """Test if leaves contain more than leaf_count training examples"""
-    for tree_class in [tree.DecisionTreeClassifier, tree.ExtraTreeClassifier]:
-        clf = tree_class(min_samples_leaf=5).fit(iris.data, iris.target)
+    X = np.asfortranarray(iris.data.astype(tree._tree.DTYPE))
+    y = iris.target
 
-        # apply tree
-        out = np.empty((iris.data.shape[0], ), dtype=np.int32)
-        X = np.asfortranarray(iris.data.astype(tree._tree.DTYPE))
-        tree._tree._apply_tree(X, clf.tree_.children, clf.tree_.feature,
-                clf.tree_.threshold, out)
-        # count node occurences
+    for tree_class in [tree.DecisionTreeClassifier, tree.ExtraTreeClassifier]:
+        clf = tree_class(min_samples_leaf=5).fit(X, y)
+
+        out = clf.tree_.apply(X)
         node_counts = np.bincount(out)
-        # drop inner nodes
-        leaf_count = node_counts[node_counts != 0]
+        leaf_count = node_counts[node_counts != 0]  # drop inner nodes
+
         assert np.min(leaf_count) >= 5
 
 
@@ -333,7 +383,7 @@ def test_pickle():
     assert_equal(type(obj2), obj.__class__)
     score2 = obj2.score(iris.data, iris.target)
     assert score == score2, "Failed to generate same score " + \
-            " after pickling (classification) "
+        " after pickling (classification) "
 
     # regression
     obj = tree.DecisionTreeRegressor()
@@ -345,7 +395,7 @@ def test_pickle():
     assert_equal(type(obj2), obj.__class__)
     score2 = obj2.score(boston.data, boston.target)
     assert score == score2, "Failed to generate same score " + \
-            " after pickling (regression) "
+        " after pickling (regression) "
 
 
 def test_multioutput():
@@ -401,6 +451,50 @@ def test_multioutput():
     y_hat = clf.fit(X, y).predict(T)
     assert_almost_equal(y_hat, y_true)
     assert_equal(y_hat.shape, (4, 2))
+
+
+def test_sample_mask():
+    """Test sample_mask argument. """
+    # test list sample_mask
+    clf = tree.DecisionTreeClassifier()
+    sample_mask = [1] * len(X)
+    clf.fit(X, y, sample_mask=sample_mask)
+    assert_array_equal(clf.predict(T), true_result)
+
+    # test different dtype
+    clf = tree.DecisionTreeClassifier()
+    sample_mask = np.ones((len(X),), dtype=np.int32)
+    clf.fit(X, y, sample_mask=sample_mask)
+    assert_array_equal(clf.predict(T), true_result)
+
+
+def test_X_argsorted():
+    """Test X_argsorted argument. """
+    # test X_argsorted with different layout and dtype
+    clf = tree.DecisionTreeClassifier()
+    X_argsorted = np.argsort(np.array(X).T, axis=1).T
+    clf.fit(X, y, X_argsorted=X_argsorted)
+    assert_array_equal(clf.predict(T), true_result)
+
+
+def test_classes_shape():
+    """Test that n_classes_ and classes_ have proper shape."""
+    # Classification, single output
+    clf = tree.DecisionTreeClassifier()
+    clf.fit(X, y)
+
+    assert_equal(clf.n_classes_, 2)
+    assert_equal(clf.classes_, [-1, 1])
+
+    # Classification, multi-output
+    _y = np.vstack((y, np.array(y) * 2)).T
+    clf = tree.DecisionTreeClassifier()
+    clf.fit(X, _y)
+
+    assert_equal(len(clf.n_classes_), 2)
+    assert_equal(len(clf.classes_), 2)
+    assert_equal(clf.n_classes_, [2, 2])
+    assert_equal(clf.classes_, [[-1, 1], [-2, 2]])
 
 
 if __name__ == "__main__":

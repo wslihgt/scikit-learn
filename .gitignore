@@ -38,4 +38,9 @@ nips2010_pdf/
 *.tar.gz
 *.tgz
 
+<<<<<<< HEAD
 .instructionsGIT
+=======
+examples/cluster/joblib
+benchmarks/bench_covertype_data/
+>>>>>>> upstream/master

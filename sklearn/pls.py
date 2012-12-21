@@ -5,21 +5,24 @@ The :mod:`sklearn.pls` module implements Partial Least Squares (PLS).
 # Author: Edouard Duchesnay <edouard.duchesnay@cea.fr>
 # License: BSD Style.
 
-from .base import BaseEstimator
-from .utils import as_float_array
+from .base import BaseEstimator, RegressorMixin, TransformerMixin
+from .utils import check_arrays
 
 import warnings
 import numpy as np
 from scipy import linalg
 
+__all__ = ['CCA', 'PLSCanonical', 'PLSRegression', 'PLSSVD']
+
 
 def _nipals_twoblocks_inner_loop(X, Y, mode="A", max_iter=500, tol=1e-06,
-    norm_y_weights=False):
-    """Inner loop of the iterative NIPALS algorithm. Provides an alternative
-    to the svd(X'Y); returns the first left and rigth singular vectors of X'Y.
-    See PLS for the meaning of the parameters.
-    It is similar to the Power method for determining the eigenvectors and
-    eigenvalues of a X'Y
+                                 norm_y_weights=False):
+    """Inner loop of the iterative NIPALS algorithm.
+
+    Provides an alternative to the svd(X'Y); returns the first left and rigth
+    singular vectors of X'Y.  See PLS for the meaning of the parameters.  It is
+    similar to the Power method for determining the eigenvectors and
+    eigenvalues of a X'Y.
     """
     y_score = Y[:, [0]]
     x_weights_old = 0
@@ -97,7 +100,7 @@ def _center_scale_xy(X, Y, scale=True):
     return X, Y, x_mean, y_mean, x_std, y_std
 
 
-class _PLS(BaseEstimator):
+class _PLS(BaseEstimator, TransformerMixin, RegressorMixin):
     """Partial Least Squares (PLS)
 
     This class implements the generic PLS algorithm, constructors' parameters
@@ -217,8 +220,8 @@ class _PLS(BaseEstimator):
 
     def fit(self, X, Y):
         # copy since this will contains the residuals (deflated) matrices
-        X = as_float_array(X, copy=self.copy)
-        Y = as_float_array(Y, copy=self.copy)
+        X, Y = check_arrays(X, Y, dtype=np.float, copy=self.copy,
+                            sparse_format='dense')
 
         if X.ndim != 2:
             raise ValueError('X must be a 2D array')
@@ -265,9 +268,8 @@ class _PLS(BaseEstimator):
             # -----------------------------------
             if self.algorithm == "nipals":
                 x_weights, y_weights = _nipals_twoblocks_inner_loop(
-                        X=Xk, Y=Yk, mode=self.mode,
-                        max_iter=self.max_iter, tol=self.tol,
-                        norm_y_weights=self.norm_y_weights)
+                    X=Xk, Y=Yk, mode=self.mode, max_iter=self.max_iter,
+                    tol=self.tol, norm_y_weights=self.norm_y_weights)
             elif self.algorithm == "svd":
                 x_weights, y_weights = _svd_cross_product(X=Xk, Y=Yk)
             # compute scores
@@ -293,13 +295,13 @@ class _PLS(BaseEstimator):
             Xk -= np.dot(x_scores, x_loadings.T)
             if self.deflation_mode == "canonical":
                 # - regress Yk's on y_score, then substract rank-one approx.
-                y_loadings = np.dot(Yk.T, y_scores) \
-                           / np.dot(y_scores.T, y_scores)
+                y_loadings = (np.dot(Yk.T, y_scores)
+                              / np.dot(y_scores.T, y_scores))
                 Yk -= np.dot(y_scores, y_loadings.T)
             if self.deflation_mode == "regression":
                 # - regress Yk's on x_score, then substract rank-one approx.
-                y_loadings = np.dot(Yk.T, x_scores) \
-                           / np.dot(x_scores.T, x_scores)
+                y_loadings = (np.dot(Yk.T, x_scores)
+                              / np.dot(x_scores.T, x_scores))
                 Yk -= np.dot(x_scores, y_loadings.T)
             # 3) Store weights, scores and loadings # Notation:
             self.x_scores_[:, k] = x_scores.ravel()  # T
@@ -313,10 +315,12 @@ class _PLS(BaseEstimator):
         # 4) rotations from input space to transformed space (scores)
         # T = X W(P'W)^-1 = XW* (W* : p x k matrix)
         # U = Y C(Q'C)^-1 = YC* (W* : q x k matrix)
-        self.x_rotations_ = np.dot(self.x_weights_,
+        self.x_rotations_ = np.dot(
+            self.x_weights_,
             linalg.inv(np.dot(self.x_loadings_.T, self.x_weights_)))
         if Y.shape[1] > 1:
-            self.y_rotations_ = np.dot(self.y_weights_,
+            self.y_rotations_ = np.dot(
+                self.y_weights_,
                 linalg.inv(np.dot(self.y_loadings_.T, self.y_weights_)))
         else:
             self.y_rotations_ = np.ones(1)
@@ -329,8 +333,8 @@ class _PLS(BaseEstimator):
             # Y = X W(P'W)^-1Q' + Err = XB + Err
             # => B = W*Q' (p x q)
             self.coefs = np.dot(self.x_rotations_, self.y_loadings_.T)
-            self.coefs = 1. / self.x_std_.reshape((p, 1)) * \
-                    self.coefs * self.y_std_
+            self.coefs = (1. / self.x_std_.reshape((p, 1)) * self.coefs *
+                          self.y_std_)
         return self
 
     def transform(self, X, Y=None, copy=True):
@@ -400,6 +404,28 @@ class _PLS(BaseEstimator):
             Xc /= self.x_std_
         Ypred = np.dot(Xc, self.coefs)
         return Ypred + self.y_mean_
+
+    def fit_transform(self, X, y=None, **fit_params):
+        """Learn and apply the dimension reduction on the train data.
+
+        Parameters
+        ----------
+        X : array-like of predictors, shape = [n_samples, p]
+            Training vectors, where n_samples in the number of samples and
+            p is the number of predictors.
+
+        Y : array-like of response, shape = [n_samples, q], optional
+            Training vectors, where n_samples in the number of samples and
+            q is the number of response variables.
+
+        copy : boolean
+            Whether to copy X and Y, or perform in-place normalization.
+
+        Returns
+        -------
+        x_scores if Y is not given, (x_scores, y_scores) otherwise.
+        """
+        return self.fit(X, y, **fit_params).transform(X, y)
 
 
 class PLSRegression(_PLS):
@@ -515,9 +541,9 @@ class PLSRegression(_PLS):
     def __init__(self, n_components=2, scale=True,
                  max_iter=500, tol=1e-06, copy=True):
         _PLS.__init__(self, n_components=n_components, scale=scale,
-                        deflation_mode="regression", mode="A",
-                        norm_y_weights=False,
-                        max_iter=max_iter, tol=tol, copy=copy)
+                      deflation_mode="regression", mode="A",
+                      norm_y_weights=False, max_iter=max_iter, tol=tol,
+                      copy=copy)
 
 
 class PLSCanonical(_PLS):
@@ -637,9 +663,9 @@ class PLSCanonical(_PLS):
     def __init__(self, n_components=2, scale=True, algorithm="nipals",
                  max_iter=500, tol=1e-06, copy=True):
         _PLS.__init__(self, n_components=n_components, scale=scale,
-                        deflation_mode="canonical", mode="A",
-                        norm_y_weights=True, algorithm=algorithm,
-                        max_iter=max_iter, tol=tol, copy=copy)
+                      deflation_mode="canonical", mode="A",
+                      norm_y_weights=True, algorithm=algorithm,
+                      max_iter=max_iter, tol=tol, copy=copy)
 
 
 class CCA(_PLS):
@@ -743,12 +769,12 @@ class CCA(_PLS):
     def __init__(self, n_components=2, scale=True,
                  max_iter=500, tol=1e-06, copy=True):
         _PLS.__init__(self, n_components=n_components, scale=scale,
-                        deflation_mode="canonical", mode="B",
-                        norm_y_weights=True, algorithm="nipals",
-                        max_iter=max_iter, tol=tol, copy=copy)
+                      deflation_mode="canonical", mode="B",
+                      norm_y_weights=True, algorithm="nipals",
+                      max_iter=max_iter, tol=tol, copy=copy)
 
 
-class PLSSVD(BaseEstimator):
+class PLSSVD(BaseEstimator, TransformerMixin):
     """Partial Least Square SVD
 
     Simply perform a svd on the crosscovariance matrix: X'Y
@@ -798,12 +824,8 @@ class PLSSVD(BaseEstimator):
 
     def fit(self, X, Y):
         # copy since this will contains the centered data
-        if self.copy:
-            X = np.asarray(X).copy()
-            Y = np.asarray(Y).copy()
-        else:
-            X = np.asarray(X)
-            Y = np.asarray(Y)
+        X, Y = check_arrays(X, Y, dtype=np.float, copy=self.copy,
+                            sparse_format='dense')
 
         n = X.shape[0]
         p = X.shape[1]
@@ -841,3 +863,22 @@ class PLSSVD(BaseEstimator):
             y_scores = np.dot(Yr, self.y_weights_)
             return x_scores, y_scores
         return x_scores
+
+    def fit_transform(self, X, y=None, **fit_params):
+        """Learn and apply the dimension reduction on the train data.
+
+        Parameters
+        ----------
+        X : array-like of predictors, shape = [n_samples, p]
+            Training vectors, where n_samples in the number of samples and
+            p is the number of predictors.
+
+        Y : array-like of response, shape = [n_samples, q], optional
+            Training vectors, where n_samples in the number of samples and
+            q is the number of response variables.
+
+        Returns
+        -------
+        x_scores if Y is not given, (x_scores, y_scores) otherwise.
+        """
+        return self.fit(X, y, **fit_params).transform(X, y)

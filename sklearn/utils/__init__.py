@@ -3,10 +3,14 @@ The :mod:`sklearn.utils` module includes various utilites.
 """
 
 import numpy as np
+from scipy.sparse import issparse
 import warnings
 
-from .validation import *
 from .murmurhash import murmurhash3_32
+from .validation import (as_float_array, check_arrays, safe_asarray,
+                         assert_all_finite, array2d, atleast2d_or_csc,
+                         atleast2d_or_csr, warn_if_not_float,
+                         check_random_state)
 
 # Make sure that DeprecationWarning get printed
 warnings.simplefilter("always", DeprecationWarning)
@@ -99,17 +103,20 @@ def safe_mask(X, mask):
 
     Parameters
     ----------
-        X : {array-like, sparse matrix}
-            Data on which to apply mask.
+    X : {array-like, sparse matrix}
+        Data on which to apply mask.
 
-        mask: array
-            Mask to be used on X.
+    mask: array
+        Mask to be used on X.
 
     Returns
     -------
         mask
     """
     mask = np.asanyarray(mask)
+    if np.issubdtype(mask.dtype, np.int):
+        return mask
+
     if hasattr(X, "toarray"):
         ind = np.arange(mask.shape[0])
         mask = ind[mask]
@@ -281,6 +288,30 @@ def shuffle(*arrays, **options):
     """
     options['replace'] = False
     return resample(*arrays, **options)
+
+
+def safe_sqr(X, copy=True):
+    """Element wise squaring of array-likes and sparse matrices.
+
+    Parameters
+    ----------
+    X : array like, matrix, sparse matrix
+
+    Returns
+    -------
+    X ** 2 : element wise square
+    """
+    X = safe_asarray(X)
+    if issparse(X):
+        if copy:
+            X = X.copy()
+        X.data **= 2
+    else:
+        if copy:
+            X = X ** 2
+        else:
+            X **= 2
+    return X
 
 
 def gen_even_slices(n, n_packs):

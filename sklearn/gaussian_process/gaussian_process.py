@@ -244,9 +244,6 @@ class GaussianProcess(BaseEstimator, RegressorMixin):
         self.random_start = random_start
         self.random_state = random_state
 
-        # Run input checks
-        self._check_params()
-
     def fit(self, X, y):
         """
         The Gaussian Process model fitting method.
@@ -258,7 +255,7 @@ class GaussianProcess(BaseEstimator, RegressorMixin):
             observations were made.
 
         y : double array_like
-            An array with shape (n_features, ) with the observations of the
+            An array with shape (n_samples, ) with the observations of the
             scalar output to be predicted.
 
         Returns
@@ -267,10 +264,13 @@ class GaussianProcess(BaseEstimator, RegressorMixin):
             A fitted Gaussian Process model object awaiting data to perform
             predictions.
         """
+        # Run input checks
+        self._check_params()
+
         self.random_state = check_random_state(self.random_state)
 
         # Force data to 2D numpy.array
-        X = array2d(np.asarray(X))
+        X = array2d(X)
         y = np.asarray(y).ravel()[:, np.newaxis]
 
         # Check shapes of DOE & observations
@@ -647,21 +647,21 @@ class GaussianProcess(BaseEstimator, RegressorMixin):
 
         return reduced_likelihood_function_value, par
 
-    @deprecated("to be removed;"
-            " access ``self.theta_`` etc. directly after fit")
+    @deprecated("to be removed in 0.14, access ``self.theta_`` etc. directly "
+                " after fit.")
     def arg_max_reduced_likelihood_function(self):
         return self._arg_max_reduced_likelihood_function()
 
     @property
-    @deprecated('``theta`` is deprecated and will be removed'
-        'please use ``theta_`` instead.')
+    @deprecated('``theta`` is deprecated and will be removed in 0.14, '
+                'please use ``theta_`` instead.')
     def theta(self):
         return self.theta_
 
     @property
     @deprecated("``reduced_likelihood_function_value`` is deprecated and will"
-            "be removed' 'please use ``reduced_likelihood_function_value_`` "
-            "instead.")
+                "be removed in 0.14, please use "
+                "``reduced_likelihood_function_value_`` instead.")
     def reduced_likelihood_function_value(self):
         return self.reduced_likelihood_function_value_
 
