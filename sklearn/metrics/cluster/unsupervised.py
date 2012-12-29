@@ -10,8 +10,8 @@ from ...utils import check_random_state
 from ..pairwise import pairwise_distances
 
 
-def silhouette_score(X, labels, metric='euclidean',
-                      sample_size=None, random_state=None, **kwds):
+def silhouette_score(X, labels, metric='euclidean', sample_size=None,
+                     random_state=None, **kwds):
     """Compute the mean Silhouette Coefficient of all samples.
 
     The Silhouette Coefficient is calculated using the mean intra-cluster
@@ -140,7 +140,9 @@ def silhouette_samples(X, labels, metric='euclidean', **kwds):
                   for i in range(n)])
     B = np.array([_nearest_cluster_distance(distances[i], labels, i)
                   for i in range(n)])
-    return (B - A) / np.maximum(A, B)
+    sil_samples = (B - A) / np.maximum(A, B)
+    # nan values are for clusters of size 1, and should be 0
+    return np.nan_to_num(sil_samples)
 
 
 def _intra_cluster_distance(distances_row, labels, i):

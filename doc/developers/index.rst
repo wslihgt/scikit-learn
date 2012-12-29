@@ -145,10 +145,13 @@ rules before submitting a pull request:
 
 You can also check for common programming errors with the following tools:
 
-    * Code with a good unittest coverage (at least 80%), check with::
+    * Code with a good unittest coverage (at least 90%, better 100%), check
+      with::
 
         $ pip install nose coverage
         $ nosetests --with-coverage path/to/tests_for_package
+
+      see also :ref:`testing_coverage`
 
     * No pyflakes warnings, check with::
 
@@ -179,13 +182,13 @@ and Cython optimizations.
   on all new contributions will get the overall code base quality in the
   right direction.
 
-EasyFix Issues
---------------
+Easy Issues
+-----------
 
 A great way to start contributing to scikit-learn is to pick an item from the
-list of `EasyFix issues
-<https://github.com/scikit-learn/scikit-learn/issues?labels=EasyFix>`_
-in the issue tracker.  Resolving these issues allow you to start contributing
+list of `Easy issues
+<https://github.com/scikit-learn/scikit-learn/issues?labels=Easy>`_
+in the issue tracker. Resolving these issues allow you to start contributing
 to the project without much prior knowledge. Your assistance in this area will
 be greatly appreciated by the more experienced developers as it helps free up
 their time to concentrate on other issues.
@@ -224,11 +227,74 @@ it.
    slightly differently. To get the best results, you should use version
    1.0.
 
+.. _testing_coverage:
+
+Testing and improving test coverage
+------------------------------------
+
+High-quality `unit testing <http://en.wikipedia.org/wiki/Unit_testing>`_
+is a corner-stone of the sciki-learn development process. For this
+purpose, we use the `nose <http://nose.readthedocs.org/en/latest/>`_
+package. The tests are functions appropriately names, located in `tests`
+subdirectories, that check the validity of the algorithms and the
+different options of the code.
+
+The full scikit-learn tests can be run using 'make' in the root folder.
+Alternatively, running 'nosetests' in a folder will run all the tests of
+the corresponding subpackages.
+
+We expect code coverage of new features to be at least around 90%.
+
+.. note:: **Workflow to improve test coverage**
+
+   To test code coverage, you need to install the `coverage
+   <http://pypi.python.org/pypi/coverage>`_ package in addition to nose.
+
+   1. Run 'make test-coverage'. The output lists for each file the line
+      numbers that are not tested.
+
+   2. Find a low hanging fruit, looking at which lines are not tested,
+      write or adapt a test specifically for these lines.
+
+   3. Loop.
+
+
+
 Developers web site
 -------------------
 
 More information can be found on the `developer's wiki
 <https://github.com/scikit-learn/scikit-learn/wiki>`_.
+
+
+Issue Tracker Tags
+------------------
+All issues and pull requests on the
+`Github issue tracker <https://github.com/scikit-learn/scikit-learn/issues>`_
+should have (at least) one of the following tags:
+
+:Bug / Crash:
+    Something is happening that clearly shouldn't happen.
+    Wrong results as well as unexpected errors from estimators go here.
+
+:Cleanup / Enhancement:
+    Improving performance, usability, consistency.
+
+:Documentation:
+    Missing, incorrect or sub-standard documentations and examples.
+
+:New Feature:
+    Feature requests and pull requests implementing a new feature.
+
+There are two other tags to help new contributors:
+
+:Easy:
+    This issue can be tackled by anyone, no experience needed.
+    Ask for help if the formulation is unclear.
+
+:Moderate:
+    Might need some knowledge of machine learning or the package,
+    but is still approachable for someone new to the project.
 
 
 Other ways to contribute
@@ -388,7 +454,8 @@ multiple interfaces):
 
 :Model:
 
-    A model that can give a goodness of fit or a likelihood of unseen
+    A model that can give a `goodness of fit <https://en.wikipedia.org/wiki/Goodness_of_fit>`_
+    measure or a likelihood of unseen
     data, implements (higher is better)::
 
       score = obj.score(data)
@@ -426,7 +493,10 @@ The arguments accepted by ``__init__`` should all be keyword arguments
 with a default value. In other words, a user should be able to instantiate
 an estimator without passing any arguments to it. The arguments should all
 correspond to hyperparameters describing the model or the optimisation
-problem the estimator tries to solve.
+problem the estimator tries to solve. These initial arguments (or parameters)
+are always remembered by the estimator.
+Also note that they should not be documented under the `Attributes` section,
+but rather under the `Parameters` section for that estimator.
 
 In addition, **every keyword argument accepted by ``__init__`` should
 correspond to an attribute on the instance**. Scikit-learn relies on this to
@@ -505,7 +575,15 @@ data dependent. A tolerance stopping criterion ``tol`` is not directly
 data dependent (although the optimal value according to some scoring
 function probably is).
 
-Any attribute that ends with ``_`` is expected to be overridden when
+Estimated Attributes
+^^^^^^^^^^^^^^^^^^^^
+
+Attributes that have been estimated from the data must always have a name
+ending with trailing underscore, for example the coefficients of
+some regression estimator would be stored in a `coef_` attribute after
+`fit()` has been called.
+
+The last-mentioned attributes are expected to be overridden when
 you call ``fit`` a second time without taking any previous value into
 account: **fit should be idempotent**.
 

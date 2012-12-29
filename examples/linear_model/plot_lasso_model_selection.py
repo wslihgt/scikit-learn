@@ -84,8 +84,8 @@ def plot_ic_criterion(model, name, color):
     criterion_ = model.criterion_
     pl.plot(-np.log10(alphas_), criterion_, '--', color=color,
             linewidth=3, label='%s criterion' % name)
-    pl.axvline(-np.log10(alpha_), color=color,
-              linewidth=3, label='alpha: %s estimate' % name)
+    pl.axvline(-np.log10(alpha_), color=color, linewidth=3,
+               label='alpha: %s estimate' % name)
     pl.xlabel('-log(alpha)')
     pl.ylabel('criterion')
 
@@ -106,7 +106,7 @@ model = LassoCV(cv=20).fit(X, y)
 t_lasso_cv = time.time() - t1
 
 # Display results
-m_log_alphas = -np.log10(model.alphas)
+m_log_alphas = -np.log10(model.alphas_)
 
 pl.figure()
 ymin, ymax = 2300, 3800
@@ -135,7 +135,7 @@ model = LassoLarsCV(cv=20).fit(X, y)
 t_lasso_lars_cv = time.time() - t1
 
 # Display results
-m_log_alphas = -np.log10(model.cv_alphas)
+m_log_alphas = -np.log10(model.cv_alphas_)
 
 pl.figure()
 pl.plot(m_log_alphas, model.cv_mse_path_, ':')
@@ -147,8 +147,8 @@ pl.legend()
 
 pl.xlabel('-log(alpha)')
 pl.ylabel('Mean square error')
-pl.title('Mean square error on each fold: Lars (train time: %.2fs)' %
-            t_lasso_lars_cv)
+pl.title('Mean square error on each fold: Lars (train time: %.2fs)'
+         % t_lasso_lars_cv)
 pl.axis('tight')
 pl.ylim(ymin, ymax)
 

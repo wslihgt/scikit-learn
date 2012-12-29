@@ -4,11 +4,13 @@ Testing for Clustering methods
 """
 
 import numpy as np
-from numpy.testing import assert_equal, assert_array_equal
 
-from ..affinity_propagation_ import AffinityPropagation, \
-                                    affinity_propagation
-from ...datasets.samples_generator import make_blobs
+from sklearn.utils.testing import (assert_equal, assert_array_equal,
+                                   assert_raises)
+from sklearn.cluster.affinity_propagation_ import AffinityPropagation
+from sklearn.cluster.affinity_propagation_ import affinity_propagation
+from sklearn.datasets.samples_generator import make_blobs
+from sklearn.metrics import euclidean_distances
 
 n_clusters = 3
 centers = np.array([[1, 1], [-1, -1], [1, -1]]) + 10
@@ -20,19 +22,24 @@ def test_affinity_propagation():
     """Affinity Propagation algorithm
     """
     # Compute similarities
-    X_norms = np.sum(X ** 2, axis=1)
-    S = - X_norms[:, np.newaxis] - X_norms[np.newaxis, :] + 2 * np.dot(X, X.T)
-    p = 10 * np.median(S)
-
+    S = -euclidean_distances(X, squared=True)
+    preference = np.median(S) * 10
     # Compute Affinity Propagation
-    cluster_centers_indices, labels = affinity_propagation(S, p)
+    cluster_centers_indices, labels = affinity_propagation(
+        S, preference=preference)
 
     n_clusters_ = len(cluster_centers_indices)
 
     assert_equal(n_clusters, n_clusters_)
 
-    af = AffinityPropagation()
-    labels = af.fit(S, p).labels_
+    af = AffinityPropagation(preference=preference, affinity="precomputed")
+    labels_precomputed = af.fit(S).labels_
+
+    af = AffinityPropagation(preference=preference, verbose=True)
+    labels = af.fit(X).labels_
+
+    assert_array_equal(labels, labels_precomputed)
+
     cluster_centers_indices = af.cluster_centers_indices_
 
     n_clusters_ = len(cluster_centers_indices)
@@ -40,5 +47,12 @@ def test_affinity_propagation():
     assert_equal(n_clusters, n_clusters_)
 
     # Test also with no copy
-    _, labels_no_copy = affinity_propagation(S, p, copy=False)
+    _, labels_no_copy = affinity_propagation(S, preference=preference,
+                                             copy=False)
     assert_array_equal(labels, labels_no_copy)
+
+    # Test input validation
+    assert_raises(ValueError, affinity_propagation, S[:, :-1])
+    assert_raises(ValueError, affinity_propagation, S, damping=0)
+    af = AffinityPropagation(affinity="unknown")
+    assert_raises(ValueError, af.fit, X)

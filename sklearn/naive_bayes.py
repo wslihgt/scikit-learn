@@ -24,7 +24,9 @@ from .base import BaseEstimator, ClassifierMixin
 from .preprocessing import binarize, LabelBinarizer
 from .utils import array2d, atleast2d_or_csr
 from .utils.extmath import safe_sparse_dot, logsumexp
-from .utils import deprecated
+from .utils import check_arrays
+
+__all__ = ['BernoulliNB', 'GaussianNB', 'MultinomialNB']
 
 
 class BaseNB(BaseEstimator, ClassifierMixin):
@@ -150,8 +152,7 @@ class GaussianNB(BaseNB):
             Returns self.
         """
 
-        X = np.asarray(X)
-        y = np.asarray(y)
+        X, y = check_arrays(X, y, sparse_format='dense')
 
         n_samples, n_features = X.shape
 
@@ -177,33 +178,12 @@ class GaussianNB(BaseNB):
         for i in xrange(np.size(self.classes_)):
             jointi = np.log(self.class_prior_[i])
             n_ij = - 0.5 * np.sum(np.log(np.pi * self.sigma_[i, :]))
-            n_ij -= 0.5 * np.sum(((X - self.theta_[i, :]) ** 2) / \
+            n_ij -= 0.5 * np.sum(((X - self.theta_[i, :]) ** 2) /
                                  (self.sigma_[i, :]), 1)
             joint_log_likelihood.append(jointi + n_ij)
 
         joint_log_likelihood = np.array(joint_log_likelihood).T
         return joint_log_likelihood
-
-    @property
-    @deprecated('GaussianNB.class_prior is deprecated'
-                ' and will be removed in version 0.12.'
-                ' Please use ``GaussianNB.class_prior_`` instead.')
-    def class_prior(self):
-        return self.class_prior_
-
-    @property
-    @deprecated('GaussianNB.theta is deprecated'
-                ' and will be removed in version 0.12.'
-                ' Please use ``GaussianNB.theta_`` instead.')
-    def theta(self):
-        return self.theta_
-
-    @property
-    @deprecated('GaussianNB.sigma is deprecated'
-                ' and will be removed in version 0.12.'
-                ' Please use ``GaussianNB.sigma_`` instead.')
-    def sigma(self):
-        return self.sigma_
 
 
 class BaseDiscreteNB(BaseNB):
@@ -260,8 +240,8 @@ class BaseDiscreteNB(BaseNB):
 
         if class_prior:
             if len(class_prior) != n_classes:
-                raise ValueError(
-                        "Number of priors must match number of classes")
+                raise ValueError("Number of priors must match number of"
+                                 " classes.")
             self.class_log_prior_ = np.log(class_prior)
         elif self.fit_prior:
             # empirical prior, with sample_weight taken into account
@@ -270,38 +250,23 @@ class BaseDiscreteNB(BaseNB):
         else:
             self.class_log_prior_ = np.zeros(n_classes) - np.log(n_classes)
 
+        # N_c_i is the count of feature i in all samples of class c.
+        # N_c is the denominator.
         N_c, N_c_i = self._count(X, Y)
 
-        self.feature_log_prob_ = (np.log(N_c_i + self.alpha)
-                                - np.log(N_c.reshape(-1, 1)
-                                       + self.alpha * X.shape[1]))
+        self.feature_log_prob_ = np.log(N_c_i) - np.log(N_c.reshape(-1, 1))
 
         return self
-
-    @staticmethod
-    def _count(X, Y):
-        """Count feature occurrences.
-
-        Returns (N_c, N_c_i), where
-            N_c is the count of all features in all samples of class c;
-            N_c_i is the count of feature i in all samples of class c.
-        """
-        if np.any((X.data if issparse(X) else X) < 0):
-            raise ValueError("Input X must be non-negative.")
-        N_c_i = safe_sparse_dot(Y.T, X)
-        N_c = np.sum(N_c_i, axis=1)
-
-        return N_c, N_c_i
 
     # XXX The following is a stopgap measure; we need to set the dimensions
     # of class_log_prior_ and feature_log_prob_ correctly.
     def _get_coef(self):
-        return self.feature_log_prob_[1] if len(self.classes_) == 2 \
-                                         else self.feature_log_prob_
+        return (self.feature_log_prob_[1]
+                if len(self.classes_) == 2 else self.feature_log_prob_)
 
     def _get_intercept(self):
-        return self.class_log_prior_[1] if len(self.classes_) == 2 \
-                                        else self.class_log_prior_
+        return (self.class_log_prior_[1]
+                if len(self.classes_) == 2 else self.class_log_prior_)
 
     coef_ = property(_get_coef)
     intercept_ = property(_get_intercept)
@@ -361,11 +326,20 @@ class MultinomialNB(BaseDiscreteNB):
         self.alpha = alpha
         self.fit_prior = fit_prior
 
+    def _count(self, X, Y):
+        """Count and smooth feature occurrences."""
+        if np.any((X.data if issparse(X) else X) < 0):
+            raise ValueError("Input X must be non-negative.")
+        N_c_i = safe_sparse_dot(Y.T, X) + self.alpha
+        N_c = np.sum(N_c_i, axis=1)
+
+        return N_c, N_c_i
+
     def _joint_log_likelihood(self, X):
         """Calculate the posterior log probability of the samples X"""
         X = atleast2d_or_csr(X)
         return (safe_sparse_dot(X, self.feature_log_prob_.T)
-               + self.class_log_prior_)
+                + self.class_log_prior_)
 
 
 class BernoulliNB(BaseDiscreteNB):
@@ -427,9 +401,12 @@ class BernoulliNB(BaseDiscreteNB):
         self.fit_prior = fit_prior
 
     def _count(self, X, Y):
+        """Count and smooth feature occurrences."""
         if self.binarize is not None:
             X = binarize(X, threshold=self.binarize)
-        return super(BernoulliNB, self)._count(X, Y)
+        N_c_i = safe_sparse_dot(Y.T, X) + self.alpha
+        N_c = Y.sum(axis=0) + self.alpha * Y.shape[1]
+        return N_c, N_c_i
 
     def _joint_log_likelihood(self, X):
         """Calculate the posterior log probability of the samples X"""
@@ -449,7 +426,7 @@ class BernoulliNB(BaseDiscreteNB):
         neg_prob = np.log(1 - np.exp(self.feature_log_prob_))
         # Compute  neg_prob · (1 - X).T  as  ∑neg_prob - X · neg_prob
         X_neg_prob = (neg_prob.sum(axis=1)
-                    - safe_sparse_dot(X, neg_prob.T))
+                      - safe_sparse_dot(X, neg_prob.T))
         jll = safe_sparse_dot(X, self.feature_log_prob_.T) + X_neg_prob
 
         return jll + self.class_log_prior_

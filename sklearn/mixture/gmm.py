@@ -10,11 +10,10 @@ of Gaussian Mixture Models.
 #         Bertrand Thirion <bertrand.thirion@inria.fr>
 
 import numpy as np
-import warnings
 
 from ..base import BaseEstimator
-from ..utils import check_random_state, deprecated
-from ..utils.extmath import logsumexp
+from ..utils import check_random_state
+from ..utils.extmath import logsumexp, pinvh
 from .. import cluster
 
 EPS = np.finfo(float).eps
@@ -237,7 +236,7 @@ class GMM(BaseEstimator):
 
         if not covariance_type in ['spherical', 'tied', 'diag', 'full']:
             raise ValueError('Invalid value for covariance_type: %s' %
-                            covariance_type)
+                             covariance_type)
 
         if n_init < 1:
             raise ValueError('GMM estimation requires at least one run')
@@ -301,37 +300,12 @@ class GMM(BaseEstimator):
         if X.shape[1] != self.means_.shape[1]:
             raise ValueError('the shape of X  is not compatible with self')
 
-        lpr = (log_multivariate_normal_density(
-                X, self.means_, self.covars_, self.covariance_type)
+        lpr = (log_multivariate_normal_density(X, self.means_, self.covars_,
+                                               self.covariance_type)
                + np.log(self.weights_))
         logprob = logsumexp(lpr, axis=1)
         responsibilities = np.exp(lpr - logprob[:, np.newaxis])
         return logprob, responsibilities
-
-    @deprecated("""will be removed in v0.12;
-    use the score or predict method instead, depending on the question""")
-    def decode(self, X):
-        """Find most likely mixture components for each point in X.
-
-        DEPRECATED IN VERSION 0.10; WILL BE REMOVED IN VERSION 0.12
-        use the score or predict method instead, depending on the question.
-
-        Parameters
-        ----------
-        X : array_like, shape (n, n_features)
-            List of n_features-dimensional data points.  Each row
-            corresponds to a single data point.
-
-        Returns
-        -------
-        logprobs : array_like, shape (n_samples,)
-            Log probability of each point in `obs` under the model.
-
-        components : array_like, shape (n_samples,)
-            Index of the most likelihod mixture components for each observation
-        """
-        logprob, posteriors = self.eval(X)
-        return logprob, posteriors.argmax(axis=1)
 
     def score(self, X):
         """Compute the log probability under the model.
@@ -381,16 +355,6 @@ class GMM(BaseEstimator):
         logprob, responsibilities = self.eval(X)
         return responsibilities
 
-    @deprecated("""will be removed in v0.12;
-    use the score or predict method instead, depending on the question""")
-    def rvs(self, n_samples=1, random_state=None):
-        """Generate random samples from the model.
-
-        DEPRECATED IN VERSION 0.11; WILL BE REMOVED IN VERSION 0.12
-        use sample instead
-        """
-        return self.sample(n_samples, random_state)
-
     def sample(self, n_samples=1, random_state=None):
         """Generate random samples from the model.
 
@@ -431,7 +395,7 @@ class GMM(BaseEstimator):
                     num_comp_in_X, random_state=random_state).T
         return X
 
-    def fit(self, X, **kwargs):
+    def fit(self, X):
         """Estimate model parameters with the expectation-maximization
         algorithm.
 
@@ -448,37 +412,21 @@ class GMM(BaseEstimator):
             corresponds to a single data point.
         """
         ## initialization step
-        X = np.asarray(X)
+        X = np.asarray(X, dtype=np.float)
         if X.ndim == 1:
             X = X[:, np.newaxis]
         if X.shape[0] < self.n_components:
             raise ValueError(
                 'GMM estimation with %s components, but got only %s samples' %
                 (self.n_components, X.shape[0]))
-        if kwargs:
-            warnings.warn("Setting parameters in the 'fit' method is"
-                    "deprecated. Set it on initialization instead.",
-                    DeprecationWarning)
-            # initialisations for in case the user still adds parameters to fit
-            # so things don't break
-            if 'n_iter' in kwargs:
-                self.n_iter = kwargs['n_iter']
-            if 'n_init' in kwargs:
-                if kwargs['n_init'] < 1:
-                    raise ValueError('GMM estimation requires at least one run')
-                else:
-                    self.n_init = kwargs['n_init']
-            if 'params' in kwargs:
-                self.params = kwargs['params']
-            if 'init_params' in kwargs:
-                self.init_params = kwargs['init_params']
 
-        max_log_prob = - np.infty
+        max_log_prob = -np.infty
 
         for _ in range(self.n_init):
             if 'm' in self.init_params or not hasattr(self, 'means_'):
                 self.means_ = cluster.KMeans(
-                    n_clusters=self.n_components).fit(X).cluster_centers_
+                    n_clusters=self.n_components,
+                    random_state=self.random_state).fit(X).cluster_centers_
 
             if 'w' in self.init_params or not hasattr(self, 'weights_'):
                 self.weights_ = np.tile(1.0 / self.n_components,
@@ -490,7 +438,7 @@ class GMM(BaseEstimator):
                     cv.shape = (1, 1)
                 self.covars_ = \
                     distribute_covar_matrix_to_match_covariance_type(
-                    cv, self.covariance_type, self.n_components)
+                        cv, self.covariance_type, self.n_components)
 
             # EM algorithms
             log_likelihood = []
@@ -509,7 +457,7 @@ class GMM(BaseEstimator):
 
                 # Maximization step
                 self._do_mstep(X, responsibilities, self.params,
-                        self.min_covar)
+                               self.min_covar)
 
             # if the results are better, keep it
             if self.n_iter:
@@ -518,6 +466,14 @@ class GMM(BaseEstimator):
                     best_params = {'weights': self.weights_,
                                    'means': self.means_,
                                    'covars': self.covars_}
+        # check the existence of an init param that was not subject to
+        # likelihood computation issue.
+        if np.isneginf(max_log_prob) and self.n_iter:
+            raise RuntimeError(
+                "EM algorithm was never able to compute a valid likelihood " +
+                "given initial parameters. Try different init parameters " +
+                "(or increasing n_init) or check for degenerate data.")
+        # self.n_iter == 0 occurs when using GMM within HMM
         if self.n_iter:
             self.covars_ = best_params['covars']
             self.means_ = best_params['means']
@@ -554,7 +510,7 @@ class GMM(BaseEstimator):
         elif self.covariance_type == 'spherical':
             cov_params = self.n_components
         mean_params = ndim * self.n_components
-        return  int(cov_params + mean_params + self.n_components - 1)
+        return int(cov_params + mean_params + self.n_components - 1)
 
     def bic(self, X):
         """Bayesian information criterion for the current model fit
@@ -568,8 +524,8 @@ class GMM(BaseEstimator):
         -------
         bic: float (the lower the better)
         """
-        return (- 2 * self.score(X).sum() +
-                 self._n_parameters() * np.log(X.shape[0]))
+        return (-2 * self.score(X).sum() +
+                self._n_parameters() * np.log(X.shape[0]))
 
     def aic(self, X):
         """Akaike information criterion for the current model fit
@@ -615,7 +571,7 @@ def _log_multivariate_normal_density_tied(X, means, covars):
     """Compute Gaussian log-density at X for a tied model"""
     from scipy import linalg
     n_samples, n_dim = X.shape
-    icv = linalg.pinv(covars)
+    icv = pinvh(covars)
     lpr = -0.5 * (n_dim * np.log(2 * np.pi) + np.log(linalg.det(covars) + 0.1)
                   + np.sum(X * np.dot(X, icv), 1)[:, np.newaxis]
                   - 2 * np.dot(np.dot(X, icv), means.T)
@@ -647,8 +603,8 @@ def _log_multivariate_normal_density_full(X, means, covars, min_covar=1.e-7):
                                       lower=True)
         cv_log_det = 2 * np.sum(np.log(np.diagonal(cv_chol)))
         cv_sol = solve_triangular(cv_chol, (X - mu).T, lower=True).T
-        log_prob[:, c] = - .5 * (np.sum(cv_sol ** 2, axis=1) + \
-                                     n_dim * np.log(2 * np.pi) + cv_log_det)
+        log_prob[:, c] = - .5 * (np.sum(cv_sol ** 2, axis=1) +
+                                 n_dim * np.log(2 * np.pi) + cv_log_det)
 
     return log_prob
 
@@ -684,7 +640,7 @@ def _validate_covars(covars, covariance_type, n_components):
                              "(n_components, n_dim, n_dim)")
         for n, cv in enumerate(covars):
             if (not np.allclose(cv, cv.T)
-                or np.any(linalg.eigvalsh(cv) <= 0)):
+                    or np.any(linalg.eigvalsh(cv) <= 0)):
                 raise ValueError("component %d of 'full' covars must be "
                                  "symmetric, positive-definite" % n)
     else:
@@ -693,7 +649,7 @@ def _validate_covars(covars, covariance_type, n_components):
 
 
 def distribute_covar_matrix_to_match_covariance_type(
-    tied_cv, covariance_type, n_components):
+        tied_cv, covariance_type, n_components):
     """Create all the covariance matrices from a given template
     """
     if covariance_type == 'spherical':

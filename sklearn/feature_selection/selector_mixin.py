@@ -1,12 +1,14 @@
+# Authors: Gilles Louppe, Mathieu Blondel
+# License: BSD
 
 import numpy as np
 
 from ..base import TransformerMixin
-from ..utils import safe_mask
+from ..utils import safe_mask, atleast2d_or_csr
 
 
 class SelectorMixin(TransformerMixin):
-    """"Transformer mixin selecting features based on importance weights.
+    """Transformer mixin selecting features based on importance weights.
 
     This implementation can be mixin on any estimator that exposes a
     ``feature_importances_`` or ``coef_`` attribute to evaluate the relative
@@ -34,12 +36,14 @@ class SelectorMixin(TransformerMixin):
         X_r : array of shape [n_samples, n_selected_features]
             The input samples with only the selected features.
         """
+        X = atleast2d_or_csr(X)
         # Retrieve importance vector
         if hasattr(self, "feature_importances_"):
             importances = self.feature_importances_
             if importances is None:
-                raise ValueError("Importance weights not computed. Please  "
-                    "Set the compute_importances parameter before fit.")
+                raise ValueError("Importance weights not computed. Please set"
+                                 " the compute_importances parameter before "
+                                 "fit.")
 
         elif hasattr(self, "coef_"):
             if self.coef_.ndim == 1:
@@ -52,6 +56,9 @@ class SelectorMixin(TransformerMixin):
             raise ValueError("Missing `feature_importances_` or `coef_`"
                              " attribute, did you forget to set the "
                              "estimator's parameter to compute it?")
+        if len(importances) != X.shape[1]:
+            raise ValueError("X has different number of features than"
+                             " during model fitting.")
 
         # Retrieve threshold
         if threshold is None:

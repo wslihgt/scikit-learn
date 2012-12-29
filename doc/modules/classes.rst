@@ -145,7 +145,6 @@ Loaders
    :toctree: generated/
    :template: function.rst
 
-   datasets.load_20newsgroups
    datasets.fetch_20newsgroups
    datasets.fetch_20newsgroups_vectorized
    datasets.load_boston
@@ -160,9 +159,11 @@ Loaders
    datasets.load_linnerud
    datasets.fetch_mldata
    datasets.fetch_olivetti_faces
+   datasets.fetch_california_housing
    datasets.load_sample_image
    datasets.load_sample_images
    datasets.load_svmlight_file
+   datasets.dump_svmlight_file
 
 Samples generator
 -----------------
@@ -214,6 +215,7 @@ Samples generator
    decomposition.ProjectedGradientNMF
    decomposition.RandomizedPCA
    decomposition.KernelPCA
+   decomposition.FactorAnalysis
    decomposition.FastICA
    decomposition.NMF
    decomposition.SparsePCA
@@ -231,6 +233,29 @@ Samples generator
    decomposition.dict_learning_online
    decomposition.sparse_encode
 
+.. _dummy_ref:
+
+:mod:`sklearn.dummy`: Dummy estimators
+======================================
+
+.. automodule:: sklearn.dummy
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`model_evaluation` section for further details.
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: class.rst
+
+   dummy.DummyClassifier
+   dummy.DummyRegressor
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
 
 .. _ensemble_ref:
 
@@ -250,6 +275,7 @@ Samples generator
    :template: class.rst
 
    ensemble.RandomForestClassifier
+   ensemble.RandomTreesEmbedding
    ensemble.RandomForestRegressor
    ensemble.ExtraTreesClassifier
    ensemble.ExtraTreesRegressor
@@ -259,6 +285,23 @@ Samples generator
 .. autosummary::
    :toctree: generated/
    :template: function.rst
+
+
+partial dependence
+------------------
+
+.. automodule:: sklearn.ensemble.partial_dependence
+   :no-members:
+   :no-inherited-members:
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+   ensemble.partial_dependence.partial_dependence
+   ensemble.partial_dependence.plot_partial_dependence
 
 
 .. _feature_extraction_ref:
@@ -279,6 +322,7 @@ Samples generator
    :template: class.rst
 
    feature_extraction.DictVectorizer
+   feature_extraction.FeatureHasher
 
 From images
 -----------
@@ -432,6 +476,30 @@ From text
    hmm.MultinomialHMM
    hmm.GMMHMM
 
+.. _isotonic_ref:
+
+:mod:`sklearn.isotonic`: Isotonic regression
+============================================
+
+.. automodule:: sklearn.isotonic
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`isotonic` section for further details.
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: class.rst
+
+   isotonic.IsotonicRegression
+
+.. autosummary::
+   :toctree: generated
+   :template: function.rst
+
+   isotonic.isotonic_regression
 
 .. _kernel_approximation_ref:
 
@@ -450,8 +518,9 @@ From text
    :toctree: generated/
    :template: class.rst
 
-   kernel_approximation.RBFSampler
    kernel_approximation.AdditiveChi2Sampler
+   kernel_approximation.Nystroem
+   kernel_approximation.RBFSampler
    kernel_approximation.SkewedChi2Sampler
 
 :mod:`sklearn.semi_supervised` Semi-Supervised Learning
@@ -503,69 +572,49 @@ From text
 
 **User guide:** See the :ref:`linear_model` section for further details.
 
-For dense data
---------------
-
 .. currentmodule:: sklearn
 
 .. autosummary::
    :toctree: generated/
    :template: class.rst
 
+   linear_model.ARDRegression
+   linear_model.BayesianRidge
+   linear_model.ElasticNet
+   linear_model.ElasticNetCV
+   linear_model.Lars
+   linear_model.LarsCV
+   linear_model.Lasso
+   linear_model.LassoCV
+   linear_model.LassoLars
+   linear_model.LassoLarsCV
+   linear_model.LassoLarsIC
    linear_model.LinearRegression
+   linear_model.LogisticRegression
+   linear_model.MultiTaskLasso
+   linear_model.MultiTaskElasticNet
+   linear_model.OrthogonalMatchingPursuit
+   linear_model.PassiveAggressiveClassifier
+   linear_model.PassiveAggressiveRegressor
+   linear_model.Perceptron
+   linear_model.RandomizedLasso
+   linear_model.RandomizedLogisticRegression
    linear_model.Ridge
    linear_model.RidgeClassifier
    linear_model.RidgeClassifierCV
    linear_model.RidgeCV
-   linear_model.Lasso
-   linear_model.LassoCV
-   linear_model.ElasticNet
-   linear_model.ElasticNetCV
-   linear_model.Lars
-   linear_model.LassoLars
-   linear_model.LarsCV
-   linear_model.LassoLarsCV
-   linear_model.LassoLarsIC
-   linear_model.LogisticRegression
-   linear_model.OrthogonalMatchingPursuit
-   linear_model.Perceptron
    linear_model.SGDClassifier
    linear_model.SGDRegressor
-   linear_model.BayesianRidge
-   linear_model.ARDRegression
-   linear_model.RandomizedLasso
-   linear_model.RandomizedLogisticRegression
 
 .. autosummary::
    :toctree: generated/
    :template: function.rst
 
-   linear_model.lasso_path
    linear_model.lars_path
+   linear_model.lasso_path
+   linear_model.lasso_stability_path
    linear_model.orthogonal_mp
    linear_model.orthogonal_mp_gram
-   linear_model.lasso_stability_path
-
-For sparse data
----------------
-
-.. automodule:: sklearn.linear_model.sparse
-   :no-members:
-   :no-inherited-members:
-
-**User guide:** See the :ref:`linear_model` section for further details.
-
-.. currentmodule:: sklearn
-
-.. autosummary::
-   :toctree: generated/
-   :template: class.rst
-
-   linear_model.Lasso
-   linear_model.ElasticNet
-   linear_model.sparse.SGDClassifier
-   linear_model.sparse.SGDRegressor
-   linear_model.LogisticRegression
 
 
 .. _manifold_ref:
@@ -588,12 +637,14 @@ For sparse data
     manifold.LocallyLinearEmbedding
     manifold.Isomap
     manifold.MDS
+    manifold.SpectralEmbedding
 
 .. autosummary::
     :toctree: generated
     :template: function.rst
 
     manifold.locally_linear_embedding
+    manifold.spectral_embedding
 
 
 .. _metrics_ref:
@@ -621,6 +672,8 @@ Classification metrics
    metrics.recall_score
    metrics.fbeta_score
    metrics.f1_score
+   metrics.auc_score
+   metrics.average_precision_score
    metrics.precision_recall_fscore_support
    metrics.classification_report
    metrics.precision_recall_curve
@@ -676,15 +729,17 @@ Pairwise metrics
    :toctree: generated/
    :template: function.rst
 
+   metrics.pairwise.additive_chi2_kernel
+   metrics.pairwise.chi2_kernel
+   metrics.pairwise.distance_metrics
    metrics.pairwise.euclidean_distances
-   metrics.pairwise.manhattan_distances
+   metrics.pairwise.kernel_metrics
    metrics.pairwise.linear_kernel
+   metrics.pairwise.manhattan_distances
+   metrics.pairwise.pairwise_distances
+   metrics.pairwise.pairwise_kernels
    metrics.pairwise.polynomial_kernel
    metrics.pairwise.rbf_kernel
-   metrics.pairwise.distance_metrics
-   metrics.pairwise.pairwise_distances
-   metrics.pairwise.kernel_metrics
-   metrics.pairwise.pairwise_kernels
 
 
 .. _mixture_ref:
@@ -836,6 +891,7 @@ Pairwise metrics
    :template: class.rst
 
    pipeline.Pipeline
+   pipeline.FeatureUnion
 
 
 .. _preprocessing_ref:
@@ -855,19 +911,23 @@ Pairwise metrics
    :toctree: generated/
    :template: class.rst
 
-   preprocessing.Scaler
-   preprocessing.Normalizer
    preprocessing.Binarizer
-   preprocessing.LabelBinarizer
    preprocessing.KernelCenterer
+   preprocessing.LabelBinarizer
+   preprocessing.LabelEncoder
+   preprocessing.MinMaxScaler
+   preprocessing.Normalizer
+   preprocessing.OneHotEncoder
+   preprocessing.StandardScaler
 
 .. autosummary::
    :toctree: generated/
    :template: function.rst
 
-   preprocessing.scale
-   preprocessing.normalize
+   preprocessing.add_dummy_feature
    preprocessing.binarize
+   preprocessing.normalize
+   preprocessing.scale
 
 
 :mod:`sklearn.qda`: Quadratic Discriminant Analysis
@@ -886,6 +946,33 @@ Pairwise metrics
    :template: class.rst
 
    qda.QDA
+
+.. _random_projection_ref:
+
+:mod:`sklearn.random_projection`: Random projection
+===================================================
+
+.. automodule:: sklearn.random_projection
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`random_projection` section for further details.
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: class.rst
+
+   random_projection.GaussianRandomProjection
+   random_projection.SparseRandomProjection
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+   random_projection.johnson_lindenstrauss_min_dim
+
 
 .. _svm_ref:
 

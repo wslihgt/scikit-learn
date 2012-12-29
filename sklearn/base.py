@@ -6,10 +6,8 @@ import copy
 import inspect
 import numpy as np
 from scipy import sparse
-import warnings
 
 from .metrics import r2_score
-from .utils import deprecated
 
 
 ###############################################################################
@@ -39,9 +37,9 @@ def clone(estimator, safe=True):
             return copy.deepcopy(estimator)
         else:
             raise TypeError("Cannot clone object '%s' (type %s): "
-                    "it does not seem to be a scikit-learn estimator as "
-                    "it does not implement a 'get_params' methods."
-                    % (repr(estimator), type(estimator)))
+                            "it does not seem to be a scikit-learn estimator a"
+                            " it does not implement a 'get_params' methods."
+                            % (repr(estimator), type(estimator)))
     klass = estimator.__class__
     new_object_params = estimator.get_params(deep=False)
     for name, param in new_object_params.iteritems():
@@ -93,7 +91,8 @@ def clone(estimator, safe=True):
             equality_test = new_object_params[name] == params_set[name]
         if not equality_test:
             raise RuntimeError('Cannot clone object %s, as the constructor '
-                'does not seem to set parameter %s' % (estimator, name))
+                               'does not seem to set parameter %s' %
+                               (estimator, name))
 
     return new_object
 
@@ -133,8 +132,7 @@ def _pprint(params, offset=0, printer=repr):
         if len(this_repr) > 500:
             this_repr = this_repr[:300] + '...' + this_repr[-100:]
         if i > 0:
-            if (this_line_length + len(this_repr) >= 75
-                                        or '\n' in this_repr):
+            if (this_line_length + len(this_repr) >= 75 or '\n' in this_repr):
                 params_list.append(line_sep)
                 this_line_length = len(line_sep)
             else:
@@ -174,8 +172,8 @@ class BaseEstimator(object):
             args, varargs, kw, default = inspect.getargspec(init)
             if not varargs is None:
                 raise RuntimeError('scikit learn estimators should always '
-                        'specify their parameters in the signature of '
-                        'their init (no varargs).')
+                                   'specify their parameters in the signature'
+                                   ' of their init (no varargs).')
             # Remove 'self'
             # XXX: This is going to fail if the init is a staticmethod, but
             # who would do this?
@@ -185,10 +183,6 @@ class BaseEstimator(object):
             args = []
         args.sort()
         return args
-
-    @deprecated("to be removed in v0.12; use get_params() instead")
-    def _get_params(self, deep=True):
-        return self.get_params(deep)
 
     def get_params(self, deep=True):
         """Get parameters for the estimator
@@ -202,6 +196,7 @@ class BaseEstimator(object):
         out = dict()
         for key in self._get_param_names():
             value = getattr(self, key, None)
+            # XXX: should we rather test if instance of estimator?
             if deep and hasattr(value, 'get_params'):
                 deep_items = value.get_params().items()
                 out.update((key + '__' + k, val) for k, val in deep_items)
@@ -230,49 +225,28 @@ class BaseEstimator(object):
                 # nested objects case
                 name, sub_name = split
                 if not name in valid_params:
-                    raise ValueError('Invalid parameter %s for estimator %s'
-                            % (name, self))
+                    raise ValueError('Invalid parameter %s for estimator %s' %
+                                     (name, self))
                 sub_object = valid_params[name]
-                if not hasattr(sub_object, 'get_params'):
-                    raise TypeError(
-                    'Parameter %s of %s is not an estimator, cannot set '
-                    'sub parameter %s' %
-                        (sub_name, self.__class__.__name__, sub_name)
-                    )
                 sub_object.set_params(**{sub_name: value})
             else:
                 # simple objects case
                 if not key in valid_params:
                     raise ValueError('Invalid parameter %s ' 'for estimator %s'
-                            % (key, self.__class__.__name__))
+                                     % (key, self.__class__.__name__))
                 setattr(self, key, value)
         return self
 
-    def _set_params(self, **params):
-        if params != {}:
-            warnings.warn("Passing estimator parameters to fit is deprecated;"
-                          " use set_params instead",
-                          category=DeprecationWarning)
-        return self.set_params(**params)
-
     def __repr__(self):
         class_name = self.__class__.__name__
-        return '%s(%s)' % (
-                class_name,
-                _pprint(self.get_params(deep=False),
-                        offset=len(class_name),
-                ),
-            )
+        return '%s(%s)' % (class_name, _pprint(self.get_params(deep=False),
+                                               offset=len(class_name),),)
 
     def __str__(self):
         class_name = self.__class__.__name__
-        return '%s(%s)' % (
-                class_name,
-                _pprint(self.get_params(deep=True),
-                        offset=len(class_name),
-                        printer=str,
-                ),
-            )
+        return '%s(%s)' % (class_name,
+                           _pprint(self.get_params(deep=True),
+                                   offset=len(class_name), printer=str,),)
 
 
 ###############################################################################
@@ -326,6 +300,28 @@ class RegressorMixin(object):
 
 
 ###############################################################################
+class ClusterMixin(object):
+    """Mixin class for all cluster estimators in scikit-learn"""
+    def fit_predict(self, X, y=None):
+        """Performs clustering on X and returns cluster labels.
+
+        Parameters
+        ----------
+        X : ndarray, shape (n_samples, n_features)
+            Input data.
+
+        Returns
+        -------
+        y : ndarray, shape (n_samples,)
+            cluster labels
+        """
+        # non-optimized default implementation; override when a better
+        # method is possible for a given clustering algorithm
+        self.fit(X)
+        return self.labels_
+
+
+###############################################################################
 class TransformerMixin(object):
     """Mixin class for all transformers in scikit-learn"""
 
@@ -348,13 +344,9 @@ class TransformerMixin(object):
         X_new : numpy array of shape [n_samples, n_features_new]
             Transformed array.
 
-        Notes
-        -----
-        This method just calls fit and transform consecutively, i.e., it is not
-        an optimized implementation of fit_transform, unlike other transformers
-        such as PCA.
-
         """
+        # non-optimized default implementation; override when a better
+        # method is possible for a given clustering algorithm
         if y is None:
             # fit method of arity 1 (unsupervised transformation)
             return self.fit(X, **fit_params).transform(X)

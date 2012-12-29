@@ -16,7 +16,7 @@ from scipy import linalg
 from scipy.spatial.distance import cdist
 
 from ..utils import check_random_state
-from ..utils.extmath import norm, logsumexp
+from ..utils.extmath import norm, logsumexp, pinvh
 from .. import cluster
 from .gmm import GMM
 
@@ -215,7 +215,7 @@ class DPGMM(GMM):
             return [self.precs_] * self.n_components
 
     def _get_covars(self):
-        return [linalg.pinv(c) for c in self._get_precisions()]
+        return [pinvh(c) for c in self._get_precisions()]
 
     def _set_covars(self, covars):
         raise NotImplementedError("""The variational algorithm does
@@ -323,7 +323,7 @@ class DPGMM(GMM):
                     z.T[k], (sq_diff + 1))
                 self.precs_[k] = self.dof_[k] / self.scale_[k]
                 self.bound_prec_[k] = 0.5 * np.sum(digamma(self.dof_[k])
-                                                    - np.log(self.scale_[k]))
+                                                   - np.log(self.scale_[k]))
                 self.bound_prec_[k] -= 0.5 * np.sum(self.precs_[k])
 
         elif self.covariance_type == 'tied':
@@ -332,7 +332,7 @@ class DPGMM(GMM):
             for k in xrange(self.n_components):
                     diff = X - self.means_[k]
                     self.scale_ += np.dot(diff.T, z[:, k:k + 1] * diff)
-            self.scale_ = linalg.pinv(self.scale_)
+            self.scale_ = pinvh(self.scale_)
             self.precs_ = self.dof_ * self.scale_
             self.det_scale_ = linalg.det(self.scale_)
             self.bound_prec_ = 0.5 * wishart_log_det(
@@ -346,13 +346,12 @@ class DPGMM(GMM):
                 self.scale_[k] = (sum_resp + 1) * np.identity(n_features)
                 diff = X - self.means_[k]
                 self.scale_[k] += np.dot(diff.T, z[:, k:k + 1] * diff)
-                self.scale_[k] = linalg.pinv(self.scale_[k])
+                self.scale_[k] = pinvh(self.scale_[k])
                 self.precs_[k] = self.dof_[k] * self.scale_[k]
                 self.det_scale_[k] = linalg.det(self.scale_[k])
-                self.bound_prec_[k] = 0.5 * wishart_log_det(self.dof_[k],
-                                                            self.scale_[k],
-                                                            self.det_scale_[k],
-                                                           n_features)
+                self.bound_prec_[k] = 0.5 * wishart_log_det(
+                    self.dof_[k], self.scale_[k], self.det_scale_[k],
+                    n_features)
                 self.bound_prec_[k] -= 0.5 * self.dof_[k] * np.trace(
                     self.scale_[k])
 
@@ -365,7 +364,7 @@ class DPGMM(GMM):
         Note: this is very expensive and should not be used by default."""
         if self.verbose:
             print "Bound after updating %8s: %f" % (n, self.lower_bound(X, z))
-            if end == True:
+            if end:
                 print "Cluster proportions:", self.gamma_.T[1]
                 print "covariance_type:", self.covariance_type
 
@@ -391,17 +390,17 @@ class DPGMM(GMM):
         """The variational lower bound for the concentration parameter."""
         logprior = gammaln(self.alpha) * self.n_components
         logprior += np.sum((self.alpha - 1) * (
-                digamma(self.gamma_.T[2]) - digamma(self.gamma_.T[1] +
-                                                    self.gamma_.T[2])))
+            digamma(self.gamma_.T[2]) - digamma(self.gamma_.T[1] +
+                                                self.gamma_.T[2])))
         logprior += np.sum(- gammaln(self.gamma_.T[1] + self.gamma_.T[2]))
         logprior += np.sum(gammaln(self.gamma_.T[1]) +
                            gammaln(self.gamma_.T[2]))
         logprior -= np.sum((self.gamma_.T[1] - 1) * (
-                digamma(self.gamma_.T[1]) - digamma(self.gamma_.T[1] +
-                                                     self.gamma_.T[2])))
+            digamma(self.gamma_.T[1]) - digamma(self.gamma_.T[1] +
+                                                self.gamma_.T[2])))
         logprior -= np.sum((self.gamma_.T[2] - 1) * (
-                digamma(self.gamma_.T[2]) - digamma(self.gamma_.T[1] +
-                                                    self.gamma_.T[2])))
+            digamma(self.gamma_.T[2]) - digamma(self.gamma_.T[1] +
+                                                self.gamma_.T[2])))
         return logprior
 
     def _bound_means(self):
@@ -418,8 +417,8 @@ class DPGMM(GMM):
             logprior += np.sum(gammaln(self.dof_))
             logprior -= np.sum(
                 (self.dof_ - 1) * digamma(np.maximum(0.5, self.dof_)))
-            logprior += np.sum(- np.log(self.scale_) + self.dof_ -\
-                                     self.precs_[:, 0])
+            logprior += np.sum(- np.log(self.scale_) + self.dof_
+                               - self.precs_[:, 0])
         elif self.covariance_type == 'diag':
             logprior += np.sum(gammaln(self.dof_))
             logprior -= np.sum(
@@ -463,9 +462,9 @@ class DPGMM(GMM):
         X = np.asarray(X)
         if X.ndim == 1:
             X = X[:, np.newaxis]
-        c = np.sum(z * _bound_state_log_lik(
-                X, self._initial_bound + self.bound_prec_,
-                self.precs_, self.means_, self.covariance_type))
+        c = np.sum(z * _bound_state_log_lik(X, self._initial_bound +
+                                            self.bound_prec_, self.precs_,
+                                            self.means_, self.covariance_type))
 
         return c + self._logprior(z)
 
@@ -491,8 +490,9 @@ class DPGMM(GMM):
         self.random_state = check_random_state(self.random_state)
         if kwargs:
             warnings.warn("Setting parameters in the 'fit' method is"
-                    "deprecated. Set it on initialization instead.",
-                     DeprecationWarning)
+                          "deprecated and will be removed in 0.14. Set it on"
+                          "initialization instead.",
+                          DeprecationWarning)
             # initialisations for in case the user still adds parameters to fit
             # so things don't break
             if 'n_iter' in kwargs:
@@ -552,9 +552,9 @@ class DPGMM(GMM):
                 self.dof_ = (1 + self.n_components + X.shape[0])
                 self.dof_ *= np.ones(self.n_components)
                 self.scale_ = [2 * np.identity(n_features)
-                           for i in xrange(self.n_components)]
+                               for i in xrange(self.n_components)]
                 self.precs_ = [np.identity(n_features)
-                                for i in xrange(self.n_components)]
+                               for i in xrange(self.n_components)]
                 self.det_scale_ = np.ones(self.n_components)
                 self.bound_prec_ = np.zeros(self.n_components)
                 for k in xrange(self.n_components):
@@ -695,9 +695,9 @@ class VBGMM(DPGMM):
         if self.covariance_type not in ['full', 'tied', 'diag', 'spherical']:
             raise NotImplementedError("This ctype is not implemented: %s"
                                       % self.covariance_type)
-        p = _bound_state_log_lik(
-                X, self._initial_bound + self.bound_prec_,
-                self.precs_, self.means_, self.covariance_type)
+        p = _bound_state_log_lik(X, self._initial_bound + self.bound_prec_,
+                                 self.precs_, self.means_,
+                                 self.covariance_type)
 
         z = p + dg
         z = log_normalize(z, axis=-1)
@@ -739,6 +739,6 @@ class VBGMM(DPGMM):
         Note: this is very expensive and should not be used by default."""
         if self.verbose:
             print "Bound after updating %8s: %f" % (n, self.lower_bound(X, z))
-            if end == True:
+            if end:
                 print "Cluster proportions:", self.gamma_
                 print "covariance_type:", self.covariance_type

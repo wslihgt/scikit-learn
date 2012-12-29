@@ -24,10 +24,10 @@ except ImportError:
 from sklearn.datasets import load_lfw_pairs
 from sklearn.datasets import load_lfw_people
 
-from numpy.testing import assert_array_equal
-from numpy.testing import assert_equal
-from nose import SkipTest
-from nose.tools import raises
+from sklearn.utils.testing import assert_array_equal
+from sklearn.utils.testing import assert_equal
+from sklearn.utils.testing import SkipTest
+from sklearn.utils.testing import raises
 
 
 SCIKIT_LEARN_DATA = tempfile.mkdtemp(prefix="scikit_learn_lfw_test_")
@@ -112,7 +112,7 @@ def teardown_module():
 
 @raises(IOError)
 def test_load_empty_lfw_people():
-    lfw_people = load_lfw_people(data_home=SCIKIT_LEARN_EMPTY_DATA)
+    load_lfw_people(data_home=SCIKIT_LEARN_EMPTY_DATA)
 
 
 def test_load_fake_lfw_people():
@@ -141,8 +141,8 @@ def test_load_fake_lfw_people():
     assert_array_equal(lfw_people.target,
                        [0, 0, 1, 6, 5, 6, 3, 6, 0, 3, 6, 1, 2, 4, 5, 1, 2])
     assert_array_equal(lfw_people.target_names,
-                      ['Abdelatif Smith', 'Abhati Kepler', 'Camara Alvaro',
-                       'Chen Dupont', 'John Lee', 'Lin Bauman', 'Onur Lopez'])
+                       ['Abdelatif Smith', 'Abhati Kepler', 'Camara Alvaro',
+                        'Chen Dupont', 'John Lee', 'Lin Bauman', 'Onur Lopez'])
 
 
 @raises(ValueError)
@@ -152,7 +152,7 @@ def test_load_fake_lfw_people_too_restrictive():
 
 @raises(IOError)
 def test_load_empty_lfw_pairs():
-    lfw_people = load_lfw_pairs(data_home=SCIKIT_LEARN_EMPTY_DATA)
+    load_lfw_pairs(data_home=SCIKIT_LEARN_EMPTY_DATA)
 
 
 def test_load_fake_lfw_pairs():

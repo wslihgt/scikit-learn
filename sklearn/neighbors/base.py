@@ -8,13 +8,15 @@
 import warnings
 
 import numpy as np
+from abc import ABCMeta, abstractmethod
 from scipy.sparse import csr_matrix, issparse
 from scipy.spatial.ckdtree import cKDTree
 
 from .ball_tree import BallTree
 from ..base import BaseEstimator
 from ..metrics import pairwise_distances
-from ..utils import safe_asarray, atleast2d_or_csr
+from ..utils import safe_asarray, atleast2d_or_csr, check_arrays
+from ..utils.fixes import unique
 
 
 class NeighborsWarning(UserWarning):
@@ -66,11 +68,17 @@ def _get_weights(dist, weights):
         return weights(dist)
     else:
         raise ValueError("weights not recognized: should be 'uniform', "
-                            "'distance', or a callable function")
+                         "'distance', or a callable function")
 
 
 class NeighborsBase(BaseEstimator):
     """Base class for nearest neighbors estimators."""
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def __init__(self):
+        pass
+
     #FIXME: include float parameter p for using different distance metrics.
     # this can be passed directly to BallTree and cKDTree.  Brute-force will
     # rely on soon-to-be-updated functionality in the pairwise module.
@@ -203,7 +211,7 @@ class KNeighborsMixin(object):
                [2]]...)
 
         """
-        if self._fit_method == None:
+        if self._fit_method is None:
             raise ValueError("must fit neighbors before querying")
 
         X = atleast2d_or_csr(X)
@@ -332,14 +340,14 @@ class RadiusNeighborsMixin(object):
     """Mixin for radius-based neighbors searches"""
 
     def radius_neighbors(self, X, radius=None, return_distance=True):
-        """Finds the neighbors of a point within a given radius.
+        """Finds the neighbors within a given radius of a point or points.
 
-        Returns distance
+        Returns indices of and distances to the neighbors of each point.
 
         Parameters
         ----------
         X : array-like, last dimension same as that of fit data
-            The new point.
+            The new point or points
 
         radius : float
             Limiting distance of neighbors to return.
@@ -351,8 +359,8 @@ class RadiusNeighborsMixin(object):
         Returns
         -------
         dist : array
-            Array representing the lengths to point, only present if
-            return_distance=True
+            Array representing the euclidean distances to each point,
+            only present if return_distance=True.
 
         ind : array
             Indices of the nearest points in the population matrix.
@@ -374,12 +382,17 @@ class RadiusNeighborsMixin(object):
         The first array returned contains the distances to all points which
         are closer than 1.6, while the second array returned contains their
         indices.  In general, multiple points can be queried at the same time.
+
+        Notes
+        -----
         Because the number of neighbors of each point is not necessarily
-        equal, `radius_neighbors` returns an array of objects, where each
-        object is a 1D array of indices.
+        equal, the results for multiple query points cannot be fit in a
+        standard data array.
+        For efficiency, `radius_neighbors` returns arrays of objects, where
+        each object is a 1D array of indices or distances.
         """
 
-        if self._fit_method == None:
+        if self._fit_method is None:
             raise ValueError("must fit neighbors before querying")
 
         X = atleast2d_or_csr(X)
@@ -414,12 +427,12 @@ class RadiusNeighborsMixin(object):
 
             if return_distance:
                 if self.p == 2:
-                    dist = np.array([np.sqrt(d[neigh_ind[i]]) \
-                                        for i, d in enumerate(dist)],
+                    dist = np.array([np.sqrt(d[neigh_ind[i]])
+                                     for i, d in enumerate(dist)],
                                     dtype=dtype_F)
                 else:
-                    dist = np.array([d[neigh_ind[i]] \
-                                         for i, d in enumerate(dist)],
+                    dist = np.array([d[neigh_ind[i]]
+                                     for i, d in enumerate(dist)],
                                     dtype=dtype_F)
                 return dist, neigh_ind
             else:
@@ -550,7 +563,8 @@ class SupervisedFloatMixin(object):
         y : {array-like, sparse matrix}, shape = [n_samples]
             Target values, array of float values.
         """
-        self._y = np.asarray(y)
+        X, y = check_arrays(X, y, sparse_format="csr")
+        self._y = y
         return self._fit(X)
 
 
@@ -567,8 +581,8 @@ class SupervisedIntegerMixin(object):
         y : {array-like, sparse matrix}, shape = [n_samples]
             Target values, array of integer values.
         """
-        self._y = np.asarray(y)
-        self._classes = np.sort(np.unique(y))
+        X, y = check_arrays(X, y, sparse_format="csr")
+        self.classes_, self._y = unique(y, return_inverse=True)
         return self._fit(X)
 
 

@@ -48,7 +48,7 @@ import scipy.sparse as sp
 from .base import get_data_home
 from .base import Bunch
 from .base import load_files
-from ..utils import check_random_state, deprecated
+from ..utils import check_random_state
 from ..utils.fixes import in1d
 from ..feature_extraction.text import CountVectorizer
 from ..preprocessing import normalize
@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 
 URL = ("http://people.csail.mit.edu/jrennie/"
-            "20Newsgroups/20news-bydate.tar.gz")
+       "20Newsgroups/20news-bydate.tar.gz")
 ARCHIVE_NAME = "20news-bydate.tar.gz"
 CACHE_NAME = "20news-bydate.pkz"
 TRAIN_FOLDER = "20news-bydate-train"
@@ -85,17 +85,16 @@ def download_20newsgroups(target_dir, cache_path):
     os.remove(archive_path)
 
     # Store a zipped pickle
-    cache = dict(
-            train=load_files(train_path, charset='latin1'),
-            test=load_files(test_path, charset='latin1')
-        )
+    cache = dict(train=load_files(train_path, charset='latin1'),
+                 test=load_files(test_path, charset='latin1'))
     open(cache_path, 'wb').write(pickle.dumps(cache).encode('zip'))
     shutil.rmtree(target_dir)
     return cache
 
 
 def fetch_20newsgroups(data_home=None, subset='train', categories=None,
-                      shuffle=True, random_state=42, download_if_missing=True):
+                       shuffle=True, random_state=42,
+                       download_if_missing=True):
     """Load the filenames of the 20 newsgroups dataset.
 
     Parameters
@@ -270,13 +269,3 @@ def fetch_20newsgroups_vectorized(subset="train", data_home=None):
                          "['train', 'test', 'all']" % subset)
 
     return Bunch(data=data, target=target, target_names=target_names)
-
-
-@deprecated("Use fetch_20newsgroups instead with download_if_missing=False")
-def load_20newsgroups(download_if_missing=False, **kwargs):
-    """Alias for fetch_20newsgroups(download_if_missing=False).
-
-    See fetch_20newsgroups.__doc__ for documentation and parameter list.
-    """
-    return fetch_20newsgroups(download_if_missing=download_if_missing,
-            **kwargs)

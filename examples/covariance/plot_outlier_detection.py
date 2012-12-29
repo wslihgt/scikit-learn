@@ -42,8 +42,7 @@ clusters_separation = [0, 1, 2]
 classifiers = {
     "One-Class SVM": svm.OneClassSVM(nu=0.95 * outliers_fraction + 0.05,
                                      kernel="rbf", gamma=0.1),
-    "robust covariance estimator": EllipticEnvelope(contamination=.1),
-    }
+    "robust covariance estimator": EllipticEnvelope(contamination=.1)}
 
 # Compare given classifiers under given settings
 xx, yy = np.meshgrid(np.linspace(-7, 7, 500), np.linspace(-7, 7, 500))
@@ -51,7 +50,6 @@ n_inliers = int((1. - outliers_fraction) * n_samples)
 n_outliers = int(outliers_fraction * n_samples)
 ground_truth = np.ones(n_samples, dtype=int)
 ground_truth[-n_outliers:] = 0
-
 
 # Fit the problem with varying cluster separation
 for i, offset in enumerate(clusters_separation):
@@ -79,7 +77,7 @@ for i, offset in enumerate(clusters_separation):
         subplot = pl.subplot(1, 2, i + 1)
         subplot.set_title("Outlier detection")
         subplot.contourf(xx, yy, Z, levels=np.linspace(Z.min(), threshold, 7),
-                cmap=pl.cm.Blues_r)
+                         cmap=pl.cm.Blues_r)
         a = subplot.contour(xx, yy, Z, levels=[threshold],
                             linewidths=2, colors='red')
         subplot.contourf(xx, yy, Z, levels=[threshold, Z.max()],
