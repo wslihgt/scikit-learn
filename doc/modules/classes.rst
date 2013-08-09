@@ -7,9 +7,6 @@ the :ref:`full user guide <user_guide>` for further details, as the class and
 function raw specifications may not be enough to give full guidelines on their
 uses.
 
-.. contents:: List of modules
-   :local:
-
 
 .. _cluster_ref:
 
@@ -51,6 +48,28 @@ Functions
    cluster.dbscan
    cluster.mean_shift
    cluster.spectral_clustering
+
+.. _bicluster_ref:
+
+:mod:`sklearn.cluster.bicluster`: Biclustering
+==============================================
+
+.. automodule:: sklearn.cluster.bicluster
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`biclustering` section for further details.
+
+Classes
+-------
+.. currentmodule:: sklearn.cluster.bicluster
+
+.. autosummary::
+   :toctree: generated/
+   :template: class.rst
+
+   SpectralBiclustering
+   SpectralCoclustering
 
 .. _covariance_ref:
 
@@ -160,6 +179,8 @@ Loaders
    datasets.fetch_mldata
    datasets.fetch_olivetti_faces
    datasets.fetch_california_housing
+   datasets.fetch_covtype
+   datasets.load_mlcomp
    datasets.load_sample_image
    datasets.load_sample_images
    datasets.load_svmlight_file
@@ -180,6 +201,7 @@ Samples generator
    datasets.make_friedman1
    datasets.make_friedman2
    datasets.make_friedman3
+   datasets.make_gaussian_quantiles
    datasets.make_hastie_10_2
    datasets.make_low_rank_matrix
    datasets.make_moons
@@ -191,6 +213,8 @@ Samples generator
    datasets.make_sparse_uncorrelated
    datasets.make_spd_matrix
    datasets.make_swiss_roll
+   datasets.make_biclusters
+   datasets.make_checkerboard
 
 
 .. _decomposition_ref:
@@ -217,6 +241,7 @@ Samples generator
    decomposition.KernelPCA
    decomposition.FactorAnalysis
    decomposition.FastICA
+   decomposition.TruncatedSVD
    decomposition.NMF
    decomposition.SparsePCA
    decomposition.MiniBatchSparsePCA
@@ -279,6 +304,8 @@ Samples generator
    ensemble.RandomForestRegressor
    ensemble.ExtraTreesClassifier
    ensemble.ExtraTreesRegressor
+   ensemble.AdaBoostClassifier
+   ensemble.AdaBoostRegressor
    ensemble.GradientBoostingClassifier
    ensemble.GradientBoostingRegressor
 
@@ -362,6 +389,7 @@ From text
    :template: class.rst
 
    feature_extraction.text.CountVectorizer
+   feature_extraction.text.HashingVectorizer
    feature_extraction.text.TfidfTransformer
    feature_extraction.text.TfidfVectorizer
 
@@ -452,7 +480,9 @@ From text
    :template: class.rst
 
    grid_search.GridSearchCV
-   grid_search.IterGrid
+   grid_search.ParameterGrid
+   grid_search.ParameterSampler
+   grid_search.RandomizedSearchCV
 
 
 .. _hmm_ref:
@@ -594,6 +624,7 @@ From text
    linear_model.MultiTaskLasso
    linear_model.MultiTaskElasticNet
    linear_model.OrthogonalMatchingPursuit
+   linear_model.OrthogonalMatchingPursuitCV
    linear_model.PassiveAggressiveClassifier
    linear_model.PassiveAggressiveRegressor
    linear_model.Perceptron
@@ -652,49 +683,77 @@ From text
 :mod:`sklearn.metrics`: Metrics
 ===============================
 
+See the :ref:`model_evaluation` section and the :ref:`metrics` section of the
+user guide for further details.
+
 .. automodule:: sklearn.metrics
    :no-members:
    :no-inherited-members:
 
 .. currentmodule:: sklearn
 
-Classification metrics
-----------------------
+Model Selection Interface
+-------------------------
+See the :ref:`scoring_parameter` section of the user guide for further
+details.
 
 .. autosummary::
    :toctree: generated/
    :template: function.rst
 
-   metrics.confusion_matrix
-   metrics.roc_curve
+   metrics.make_scorer
+
+Classification metrics
+----------------------
+
+See the :ref:`classification_metrics` section of the user guide for further
+details.
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+   metrics.accuracy_score
    metrics.auc
+   metrics.average_precision_score
+   metrics.classification_report
+   metrics.confusion_matrix
+   metrics.f1_score
+   metrics.fbeta_score
+   metrics.hamming_loss
+   metrics.hinge_loss
+   metrics.jaccard_similarity_score
+   metrics.log_loss
+   metrics.matthews_corrcoef
+   metrics.precision_recall_curve
+   metrics.precision_recall_fscore_support
    metrics.precision_score
    metrics.recall_score
-   metrics.fbeta_score
-   metrics.f1_score
-   metrics.auc_score
-   metrics.average_precision_score
-   metrics.precision_recall_fscore_support
-   metrics.classification_report
-   metrics.precision_recall_curve
-   metrics.zero_one_score
-   metrics.zero_one
-   metrics.hinge_loss
+   metrics.roc_auc_score
+   metrics.roc_curve
+   metrics.zero_one_loss
 
 Regression metrics
 ------------------
 
+See the :ref:`regression_metrics` section of the user guide for further
+details.
+
 .. autosummary::
    :toctree: generated/
    :template: function.rst
 
-   metrics.r2_score
+   metrics.explained_variance_score
+   metrics.mean_absolute_error
    metrics.mean_squared_error
+   metrics.r2_score
+
 
 Clustering metrics
 ------------------
 
-See the :ref:`clustering` section of the user guide for further details.
+See the :ref:`clustering_evaluation` section of the user guide for further
+details.
 
 .. automodule:: sklearn.metrics.cluster
    :no-members:
@@ -714,7 +773,23 @@ See the :ref:`clustering` section of the user guide for further details.
    metrics.mutual_info_score
    metrics.normalized_mutual_info_score
    metrics.silhouette_score
+   metrics.silhouette_samples
    metrics.v_measure_score
+
+Biclustering metrics
+--------------------
+
+See the :ref:`biclustering_evaluation` section of the user guide for
+further details.
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: function.rst
+
+   metrics.consensus_score
+
 
 Pairwise metrics
 ----------------
@@ -796,7 +871,6 @@ Pairwise metrics
     multiclass.fit_ecoc
     multiclass.predict_ecoc
 
-
 .. _naive_bayes_ref:
 
 :mod:`sklearn.naive_bayes`: Naive Bayes
@@ -841,8 +915,11 @@ Pairwise metrics
    neighbors.RadiusNeighborsClassifier
    neighbors.KNeighborsRegressor
    neighbors.RadiusNeighborsRegressor
-   neighbors.BallTree
    neighbors.NearestCentroid
+   neighbors.BallTree
+   neighbors.KDTree
+   neighbors.DistanceMetric
+   neighbors.KernelDensity
 
 .. autosummary::
    :toctree: generated/
@@ -851,17 +928,16 @@ Pairwise metrics
    neighbors.kneighbors_graph
    neighbors.radius_neighbors_graph
 
+.. _neural_network_ref:
 
-.. _pls_ref:
+:mod:`sklearn.neural_network`: Neural network models
+=====================================================
 
-:mod:`sklearn.pls`: Partial Least Squares
-=========================================
-
-.. automodule:: sklearn.pls
+.. automodule:: sklearn.neural_network
    :no-members:
    :no-inherited-members:
 
-**User guide:** See the :ref:`pls` section for further details.
+**User guide:** See the :ref:`neural_network` section for further details.
 
 .. currentmodule:: sklearn
 
@@ -869,10 +945,30 @@ Pairwise metrics
    :toctree: generated/
    :template: class.rst
 
-   pls.PLSRegression
-   pls.PLSCanonical
-   pls.CCA
-   pls.PLSSVD
+   neural_network.BernoulliRBM
+
+
+.. _cross_decomposition_ref:
+
+:mod:`sklearn.cross_decomposition`: Cross decomposition
+=======================================================
+
+.. automodule:: sklearn.cross_decomposition
+   :no-members:
+   :no-inherited-members:
+
+**User guide:** See the :ref:`cross_decomposition` section for further details.
+
+.. currentmodule:: sklearn
+
+.. autosummary::
+   :toctree: generated/
+   :template: class.rst
+
+   cross_decomposition.PLSRegression
+   cross_decomposition.PLSCanonical
+   cross_decomposition.CCA
+   cross_decomposition.PLSSVD
 
 
 .. _pipeline_ref:
@@ -912,6 +1008,7 @@ Pairwise metrics
    :template: class.rst
 
    preprocessing.Binarizer
+   preprocessing.Imputer
    preprocessing.KernelCenterer
    preprocessing.LabelBinarizer
    preprocessing.LabelEncoder
@@ -926,6 +1023,7 @@ Pairwise metrics
 
    preprocessing.add_dummy_feature
    preprocessing.binarize
+   preprocessing.label_binarize
    preprocessing.normalize
    preprocessing.scale
 

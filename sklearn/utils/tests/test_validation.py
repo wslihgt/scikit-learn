@@ -4,10 +4,12 @@ from tempfile import NamedTemporaryFile
 import numpy as np
 from numpy.testing import assert_array_equal
 import scipy.sparse as sp
-from nose.tools import assert_raises, assert_true, assert_false
+from nose.tools import assert_raises, assert_true, assert_false, assert_equal
 
 from sklearn.utils import (array2d, as_float_array, atleast2d_or_csr,
                            atleast2d_or_csc, check_arrays, safe_asarray)
+
+from sklearn.random_projection import sparse_random_matrix
 
 
 def test_as_float_array():
@@ -30,6 +32,17 @@ def test_as_float_array():
     # Test that if X is fortran ordered it stays
     X = np.asfortranarray(X)
     assert_true(np.isfortran(as_float_array(X, copy=True)))
+
+    # Test the copy parameter with some matrices
+    matrices = [
+        np.matrix(np.arange(5)),
+        sp.csc_matrix(np.arange(5)).todense(),
+        sparse_random_matrix(10, 10, density=0.10).todense()
+    ]
+    for M in matrices:
+        N = as_float_array(M, copy=True)
+        N[0, 0] = np.nan
+        assert_false(np.isnan(M).any())
 
 
 def test_check_arrays_exceptions():
@@ -84,10 +97,11 @@ def test_memmap():
 
 
 def test_ordering():
-    # Check that ordering is enforced correctly by the different
-    # validation utilities
-    # We need to check each validation utility, because a 'copy' without
-    # 'order=K' will kill the ordering
+    """Check that ordering is enforced correctly by validation utilities.
+
+    We need to check each validation utility, because a 'copy' without
+    'order=K' will kill the ordering.
+    """
     X = np.ones((10, 5))
     for A in X, X.T:
         for validator in (array2d, atleast2d_or_csr, atleast2d_or_csc):
@@ -98,3 +112,64 @@ def test_ordering():
                 assert_true(B.flags['F_CONTIGUOUS'])
                 if copy:
                     assert_false(A is B)
+
+    X = sp.csr_matrix(X)
+    X.data = X.data[::-1]
+    assert_false(X.data.flags['C_CONTIGUOUS'])
+
+    for validator in (atleast2d_or_csc, atleast2d_or_csr):
+        for copy in (True, False):
+            Y = validator(X, copy=copy, order='C')
+            assert_true(Y.data.flags['C_CONTIGUOUS'])
+
+
+def test_check_arrays():
+    # check that error is raised on different length inputs
+    X = [0, 1]
+    Y = np.arange(3)
+    assert_raises(ValueError, check_arrays, X, Y)
+
+    # check error for sparse matrix and array
+    X = sp.csc_matrix(np.arange(4))
+    assert_raises(ValueError, check_arrays, X, Y)
+
+    # check they y=None pattern
+    X = [0, 1, 2]
+    X_, Y_, Z_ = check_arrays(X, Y, None)
+    assert_true(Z_ is None)
+
+    # check that lists are converted
+    X_, Y_ = check_arrays(X, Y)
+    assert_true(isinstance(X_, np.ndarray))
+    assert_true(isinstance(Y_, np.ndarray))
+
+    # check that Y was not copied:
+    assert_true(Y_ is Y)
+
+    # check copying
+    X_, Y_ = check_arrays(X, Y, copy=True)
+    assert_false(Y_ is Y)
+
+    # check forcing dtype
+    X_, Y_ = check_arrays(X, Y, dtype=np.int)
+    assert_equal(X_.dtype, np.int)
+    assert_equal(Y_.dtype, np.int)
+
+    X_, Y_ = check_arrays(X, Y, dtype=np.float)
+    assert_equal(X_.dtype, np.float)
+    assert_equal(Y_.dtype, np.float)
+
+    # test check_ccontiguous
+    Y = np.arange(6).reshape(3, 2).copy('F')
+    # if we don't specify it, it is not changed
+    X_, Y_ = check_arrays(X, Y)
+    assert_true(Y_.flags['F_CONTIGUOUS'])
+    assert_false(Y_.flags['C_CONTIGUOUS'])
+
+    X_, Y_ = check_arrays(X, Y, check_ccontiguous=True)
+    assert_true(Y_.flags['C_CONTIGUOUS'])
+    assert_false(Y_.flags['F_CONTIGUOUS'])
+
+    # check that lists are passed through if allow_lists is true
+    X_, Y_ = check_arrays(X, Y, allow_lists=True)
+    assert_true(isinstance(X_, list))

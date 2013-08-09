@@ -1,17 +1,18 @@
+# -*- coding: utf-8 -*-
 """Algorithms for spectral clustering"""
 
 # Author: Gael Varoquaux gael.varoquaux@normalesup.org
 #         Brian Cheung
 #         Wei LI <kuantkid@gmail.com>
-# License: BSD
+# License: BSD 3 clause
 import warnings
 
 import numpy as np
 
 from ..base import BaseEstimator, ClusterMixin
-from ..utils import check_random_state, as_float_array
+from ..utils import check_random_state, as_float_array, deprecated
 from ..utils.extmath import norm
-from ..metrics.pairwise import rbf_kernel
+from ..metrics.pairwise import pairwise_kernels
 from ..neighbors import kneighbors_graph
 from ..manifold import spectral_embedding
 from .k_means_ import k_means
@@ -137,7 +138,7 @@ def discretize(vectors, copy=True, max_svd_restarts=30, n_iter_max=20,
                 U, S, Vh = np.linalg.svd(t_svd)
                 svd_restarts += 1
             except LinAlgError:
-                print "SVD did not converge, randomizing and trying again"
+                print("SVD did not converge, randomizing and trying again")
                 break
 
             ncut_value = 2.0 * (n_samples - S.sum())
@@ -156,9 +157,7 @@ def discretize(vectors, copy=True, max_svd_restarts=30, n_iter_max=20,
 
 def spectral_clustering(affinity, n_clusters=8, n_components=None,
                         eigen_solver=None, random_state=None, n_init=10,
-                        k=None, eigen_tol=0.0,
-                        assign_labels='kmeans',
-                        mode=None):
+                        eigen_tol=0.0, assign_labels='kmeans'):
     """Apply clustering to a projection to the normalized laplacian.
 
     In practice Spectral Clustering is very useful when the structure of
@@ -174,12 +173,12 @@ def spectral_clustering(affinity, n_clusters=8, n_components=None,
     -----------
     affinity: array-like or sparse matrix, shape: (n_samples, n_samples)
         The affinity matrix describing the relationship of the samples to
-        embed. **Must be symetric**.
+        embed. **Must be symmetric**.
 
         Possible examples:
           - adjacency matrix of a graph,
           - heat kernel of the pairwise distance matrix of the samples,
-          - symmetic k-nearest neighbours connectivity matrix of the samples.
+          - symmetric k-nearest neighbours connectivity matrix of the samples.
 
     n_clusters: integer, optional
         Number of clusters to extract.
@@ -211,7 +210,9 @@ def spectral_clustering(affinity, n_clusters=8, n_components=None,
         space.  There are two ways to assign labels after the laplacian
         embedding.  k-means can be applied and is a popular choice. But it can
         also be sensitive to initialization. Discretization is another
-        approach which is less sensitive to random initialization.
+        approach which is less sensitive to random initialization. See
+        the 'Multiclass spectral clustering' paper referenced below for
+        more details on the discretization approach.
 
     Returns
     -------
@@ -246,17 +247,6 @@ def spectral_clustering(affinity, n_clusters=8, n_components=None,
                          "'kmeans' or 'discretize', but '%s' was given"
                          % assign_labels)
 
-    if not k is None:
-        warnings.warn("'k' was renamed to n_clusters and will "
-                      "be removed in 0.15.",
-                      DeprecationWarning)
-        n_clusters = k
-    if not mode is None:
-        warnings.warn("'mode' was renamed to eigen_solver "
-                      "and will be removed in 0.15.",
-                      DeprecationWarning)
-        eigen_solver = mode
-
     random_state = check_random_state(random_state)
     n_components = n_clusters if n_components is None else n_components
     maps = spectral_embedding(affinity, n_components=n_components,
@@ -285,8 +275,9 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
     If affinity is the adjacency matrix of a graph, this method can be
     used to find normalized graph cuts.
 
-    When calling ``fit``, an affinity matrix is constructed using either the
-    Gaussian (aka RBF) kernel of the euclidean distanced ``d(X, X)``::
+    When calling ``fit``, an affinity matrix is constructed using either
+    kernel function such the Gaussian (aka RBF) kernel of the euclidean
+    distanced ``d(X, X)``::
 
             np.exp(-gamma * d(X,X) ** 2)
 
@@ -300,11 +291,26 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
     n_clusters : integer, optional
         The dimension of the projection subspace.
 
-    affinity: string, 'nearest_neighbors', 'rbf' or 'precomputed'
+    affinity : string, array-like or callable, default 'rbf'
+        If a string, this may be one of 'nearest_neighbors', 'precomputed',
+        'rbf' or one of the kernels supported by
+        `sklearn.metrics.pairwise_kernels`.
+
+        Only kernels that produce similarity scores (non-negative values that
+        increase with similarity) should be used. This property is not checked
+        by the clustering algorithm.
 
     gamma: float
-        Scaling factor of Gaussian (rbf) affinity kernel. Ignored for
+        Scaling factor of RBF, polynomial, exponential chi² and
+        sigmoid affinity kernel. Ignored for
         ``affinity='nearest_neighbors'``.
+
+    degree : float, default=3
+        Degree of the polynomial kernel. Ignored by other kernels.
+
+    coef0 : float, default=1
+        Zero coefficient for polynomial and sigmoid kernels.
+        Ignored by other kernels.
 
     n_neighbors: integer
         Number of neighbors to use when constructing the affinity matrix using
@@ -335,6 +341,10 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
         embedding. k-means can be applied and is a popular choice. But it can
         also be sensitive to initialization. Discretization is another approach
         which is less sensitive to random initialization.
+
+    kernel_params : dictionary of string to any, optional
+        Parameters (keyword arguments) and values for kernel passed as
+        callable object. Ignored by other kernels.
 
     Attributes
     ----------
@@ -378,19 +388,9 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
     """
 
     def __init__(self, n_clusters=8, eigen_solver=None, random_state=None,
-                 n_init=10, gamma=1., affinity='rbf', n_neighbors=10, k=None,
-                 eigen_tol=0.0, assign_labels='kmeans', mode=None):
-        if k is not None:
-            warnings.warn("'k' was renamed to n_clusters and "
-                          "will be removed in 0.15.",
-                          DeprecationWarning)
-            n_clusters = k
-        if mode is not None:
-            warnings.warn("'mode' was renamed to eigen_solver and "
-                          "will be removed in 0.15.",
-                          DeprecationWarning)
-            eigen_solver = mode
-
+                 n_init=10, gamma=1., affinity='rbf', n_neighbors=10,
+                 eigen_tol=0.0, assign_labels='kmeans', degree=3, coef0=1,
+                 kernel_params=None):
         self.n_clusters = n_clusters
         self.eigen_solver = eigen_solver
         self.random_state = random_state
@@ -400,6 +400,9 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
         self.n_neighbors = n_neighbors
         self.eigen_tol = eigen_tol
         self.assign_labels = assign_labels
+        self.degree = degree
+        self.coef0 = coef0
+        self.kernel_params = kernel_params
 
     def fit(self, X):
         """Creates an affinity matrix for X using the selected affinity,
@@ -417,24 +420,28 @@ class SpectralClustering(BaseEstimator, ClusterMixin):
                           " a custom affinity matrix, "
                           "set ``affinity=precomputed``.")
 
-        if self.affinity == 'rbf':
-            self.affinity_matrix_ = rbf_kernel(X, gamma=self.gamma)
-
-        elif self.affinity == 'nearest_neighbors':
+        if self.affinity == 'nearest_neighbors':
             connectivity = kneighbors_graph(X, n_neighbors=self.n_neighbors)
             self.affinity_matrix_ = 0.5 * (connectivity + connectivity.T)
         elif self.affinity == 'precomputed':
             self.affinity_matrix_ = X
         else:
-            raise ValueError("Invalid 'affinity'. Expected 'rbf', "
-                             "'nearest_neighbors' or 'precomputed', got '%s'."
-                             % self.affinity)
+            params = self.kernel_params
+            if params is None:
+                params = {}
+            if not callable(self.affinity):
+                params['gamma'] = self.gamma
+                params['degree'] = self.degree
+                params['coef0'] = self.coef0
+            self.affinity_matrix_ = pairwise_kernels(X, metric=self.affinity,
+                                                     filter_params=True,
+                                                     **params)
 
-        self.random_state = check_random_state(self.random_state)
+        random_state = check_random_state(self.random_state)
         self.labels_ = spectral_clustering(self.affinity_matrix_,
                                            n_clusters=self.n_clusters,
                                            eigen_solver=self.eigen_solver,
-                                           random_state=self.random_state,
+                                           random_state=random_state,
                                            n_init=self.n_init,
                                            eigen_tol=self.eigen_tol,
                                            assign_labels=self.assign_labels)
