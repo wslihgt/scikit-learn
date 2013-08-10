@@ -22,7 +22,12 @@ np.seterr(all='warn')
 #
 # 
 import scipy.io
-struc = scipy.io.loadmat('X.mat')
+
+import os
+
+absPath = os.path.abspath('./sklearn/tests/')
+print os.path.join(absPath,'X.mat')
+struc = scipy.io.loadmat(os.path.join(absPath,'X.mat'))
 X = struc['X']
 
 fghmm = fhmm.GaussianFHMM(n_components_per_chain=[2,2])

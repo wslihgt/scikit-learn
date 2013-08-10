@@ -14,6 +14,8 @@
 
 import sys
 import os
+
+sys.path.insert(0, os.path.abspath("../build/lib.macosx-10.5-x86_64-2.7/"))
 from sklearn.externals.six import u
 
 # If extensions (or modules to document with autodoc) are in another
